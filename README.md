@@ -119,6 +119,16 @@ There is no build step: `nimbus.ax` is uploaded as is. Some handy endpoints of t
 
 Made and tested on the **Ulanzi TC001 (32×8)**. Other panels may work but haven't been tested yet; feedback welcome!
 
+## Changelog
+
+### 1.1 — 2026-10-01
+- New `fade` transition: the old panel fades to black, then the new one fades in.
+- New `morph` transition: each pixel switches from the old panel to the new one at its own random moment.
+- The panel digits are now drawn by Nimbus from a copy of the firmware's font, so they fade and morph with the rest of the panel. They look the same as before.
+
+### 1.0 — 2026-10-01
+- First release: clock with week bar; rotating calendar, temperature and weather icon; 6 transitions; automatic temperature color; 8 built-in animated weather icons; night mode (manual, scheduled or over MQTT).
+
 ## Credits
 
 Weather data by [Open-Meteo.com](https://open-meteo.com/), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
