@@ -10,7 +10,7 @@ A clock app for [AWTRIX NG](https://github.com/Blueforcer/awtrix-ng) that keeps 
 
 <sub>Real frames captured from a Ulanzi TC001, with the time set to 13:37 for the screenshots.</sub>
 
-**Get it on the AWTRIX Hub: [awtrix.de/flow/wQPSUfXDCHbe](https://awtrix.de/flow/wQPSUfXDCHbe)**
+**Get it on the AWTRIX Hub: [awtrix.de/flow/RRngmhaqcgQM](https://awtrix.de/flow/RRngmhaqcgQM)**
 
 ## Features
 
@@ -25,7 +25,7 @@ A clock app for [AWTRIX NG](https://github.com/Blueforcer/awtrix-ng) that keeps 
 
 ## Installation
 
-**From the AWTRIX Hub:** install [Nimbus from awtrix.de](https://awtrix.de/flow/wQPSUfXDCHbe).
+**From the AWTRIX Hub:** install [Nimbus from awtrix.de](https://awtrix.de/flow/RRngmhaqcgQM).
 
 **Manually:** create a new script in the AWTRIX NG web UI and paste the content of [`nimbus.ax`](nimbus.ax), or upload it over HTTP:
 
