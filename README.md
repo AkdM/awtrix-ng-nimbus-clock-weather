@@ -17,7 +17,7 @@ A clock app for [AWTRIX NG](https://github.com/Blueforcer/awtrix-ng) that keeps 
 - **Always-on clock**: HH:MM with a pulsing colon, on the left or right side
 - **Week bar** under the clock, today highlighted
 - **Rotating panel**: calendar → temperature → weather icon, with separate durations for the date and the weather
-- **7 transitions**: wipe, fade, scroll up/down, slide left/right, or none
+- **8 transitions**: wipe, fade, pixel morph, scroll up/down, slide left/right, or none
 - **Temperature color that follows the weather**: blue at 10 °C and below, orange around 20 °C, red from 30 °C (°C/°F follows the device setting)
 - **8 built-in animated weather icons**, day/night aware
 - **Night mode**: only a centered red clock and week bar. Turn it on manually, on a schedule, or over MQTT (Home Assistant friendly)
@@ -44,7 +44,7 @@ Then open the app settings and set your **latitude** and **longitude** (the defa
 | Weather refresh | 15 min | Time between updates; a failed fetch is retried every minute |
 | Date duration | 10 s | How long the calendar stays on screen |
 | Temperature / icon duration | 3 s | How long the temperature, then the icon, stay on screen |
-| Transition | wipe | `wipe`, `fade`, `down`, `up`, `left`, `right` or `none` |
+| Transition | wipe | `wipe`, `fade`, `morph`, `down`, `up`, `left`, `right` or `none` |
 | Week days color | #A3A3A3 | Days of the week bar |
 | Current day color | #FFFFFF | Today in the week bar |
 | Week starts Sunday | off | Otherwise the week starts on Monday |
