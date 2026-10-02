@@ -26,7 +26,7 @@ class Nimbus
   var tcol                      # temperature color, follows the temperature
   var wc, wdc, ssun             # week bar config
   var tx, px, cx, wx            # x of the clock, of the 14 px panel area, of the calendar and of the week bar
-  var nm, nman                  # night mode on now, and its manual switch (setting or MQTT)
+  var nm, nman, replay          # night mode on now, its manual switch, and whether the next MQTT message may be a replay
   var ddur, wdur, pticks        # panel durations (seconds) and countdown
   var panel, prev               # 0 = date, 1 = temperature, 2 = icon
   var tran, anim_ms             # transition style and its start, nil when idle
@@ -81,7 +81,15 @@ class Nimbus
       self.rank.add(g % 100, 1)
     end
 
-    self.nman = store.get("night")
+    # manual switch: whichever changed last wins, the setting or MQTT; the state is kept in
+    # the store so it survives restarts
+    var s = store.get("night")
+    if s != store.get("nset")
+      store.set("nset", s)
+      store.set("nstate", s)
+    end
+    self.nman = store.get("nstate", s)
+    self.replay = true
     var nt = store.get("ntopic")
     if nt != nil && size(nt) > 0
       mqtt.subscribe(nt, / t, p -> self.on_night(p))
@@ -136,7 +144,15 @@ class Nimbus
 
   def on_night(p)
     var v = string.tolower(str(p))
-    self.nman = v == "on" || v == "true" || v == "1"
+    v = v == "on" || v == "true" || v == "1"
+    # the first message after a restart can be the broker replaying its retained message:
+    # skip it if that value was already applied, so a later change of the setting still wins
+    var replay = self.replay
+    self.replay = false
+    if replay && v == store.get("nmqtt") return end
+    store.set("nmqtt", v)
+    store.set("nstate", v)
+    self.nman = v
   end
 
   def on_weather(b, s)

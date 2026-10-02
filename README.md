@@ -60,7 +60,7 @@ The clock, temperature unit and calendar colors come from the device settings (`
 
 Night mode hides the panel and draws only the clock and the week bar, in red, centered on the display. It is on as soon as one of these says so:
 
-- the **Night mode** setting or the last MQTT message,
+- the manual switch: the **Night mode** setting or an MQTT message, whichever changed last,
 - the **Automatic night mode** schedule.
 
 So during the automatic hours, turning the manual switch off doesn't wake the display.
@@ -77,7 +77,7 @@ data:
   retain: true
 ```
 
-Publish **retained** so the state survives a restart. Note that a retained message is replayed every time the script restarts, which includes saving its settings. While one exists, it overrides the **Night mode** setting; publish a new message to change the state.
+Nimbus remembers the state across restarts, so `retain` is optional. It helps if the clock was offline when the message was sent; after a restart, Nimbus ignores the replay of a message it has already applied, so a later change of the **Night mode** setting still wins.
 
 > **Tip:** at very low brightness, dim colors can disappear on the LEDs (any color channel below about `0xB2` at the lowest auto-brightness). If your week days vanish at night, pick a lighter color for them.
 
