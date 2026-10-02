@@ -1,6 +1,6 @@
 # @name Nimbus
 # @desc Clock with rotating date and outdoor weather
-# @version 1.1
+# @version 1.2
 # @config lat number "Latitude" default=48.8566 min=-90 max=90 step=0.0001
 # @config lon number "Longitude" default=2.3522 min=-180 max=180 step=0.0001
 # @config wref number "Weather refresh" default=15 min=5 max=120 unit=min

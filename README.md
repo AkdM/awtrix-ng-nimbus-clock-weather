@@ -121,6 +121,12 @@ Made and tested on the **Ulanzi TC001 (32×8)**. Other panels may work but haven
 
 ## Changelog
 
+### 1.2 — 2026-10-02
+- The degree sign is a solid dot instead of a ring.
+- With the clock on the right, it sits 1 px closer to the panel, centered on the week bar.
+- Night mode: the time moved 1 px left so it looks centered over the week bar.
+- Night mode: the last change wins between the **Night mode** setting and MQTT, and the state survives restarts. A retained MQTT message no longer overrides the setting each time the settings are saved.
+
 ### 1.1 — 2026-10-01
 - New `fade` transition: the old panel fades to black, then the new one fades in.
 - New `morph` transition: each pixel switches from the old panel to the new one at its own random moment.
