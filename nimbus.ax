@@ -25,7 +25,7 @@ class Nimbus
   var tc, ch_c, cb_c, ct_c      # colors from device settings
   var tcol                      # temperature color, follows the temperature
   var wc, wdc, ssun             # week bar config
-  var tx, px, cx, wx            # x of the clock, of the 14 px panel area, of the calendar and of the week bar
+  var tx, px, cx, wx            # x of the clock, of the 13 px panel area, of the calendar and of the week bar
   var nm, nman, replay          # night mode on now, its manual switch, and whether the next MQTT message may be a replay
   var ddur, wdur, pticks        # panel durations (seconds) and countdown
   var panel, prev               # 0 = date, 1 = temperature, 2 = icon
@@ -47,10 +47,10 @@ class Nimbus
     self.wc = store.get("wc")
     self.wdc = store.get("wdc")
     self.ssun = store.get("ssun")
-    # clock on the right mirrors the layout: panel in x 0..13, calendar on the outer edge
+    # clock on the right mirrors the layout: panel in x 0..12, calendar on the outer edge
     var r = store.get("tright")
-    self.tx = r ? 14 : 1
-    self.px = r ? 0 : 18
+    self.tx = r ? 13 : 1
+    self.px = r ? 0 : 19
     self.cx = r ? 0 : 21
     self.wx = r ? 12 : 0
 
@@ -72,7 +72,7 @@ class Nimbus
     self.font = {"0": "###/#.#/#.#/#.#/###", "1": ".#/##/.#/.#/###", "2": "###/..#/###/#/###",
                  "3": "###/..#/###/..#/###", "4": "#.#/#.#/###/..#/..#", "5": "###/#/###/..#/###",
                  "6": "###/#/###/#.#/###", "7": "###/..#/..#/..#/..#", "8": "###/#.#/###/#.#/###",
-                 "9": "###/#.#/###/..#/###", "-": "//###", "o": "###/#.#/###", "?": "###/..#/.#//.#"}
+                 "9": "###/#.#/###/..#/###", "-": "//###", "o": "##/##", "?": "###/..#/.#//.#"}
     # random order in which the pixels switch during a morph
     self.rank = bytes()
     var g = 224 # seed picked so the switches spread evenly over the transition
@@ -250,26 +250,27 @@ class Nimbus
 
   def draw_panel(p, ox, oy)
     var x = self.px + ox
+    var m = self.px == 0 ? 0 : 1 # rounds the other way with the clock on the left, so both layouts mirror
     if p == 0
       x = self.cx + ox
       self.box(x, oy, 11, 2, self.ch_c)
       self.box(x, oy + 2, 11, 5, self.cb_c)
       self.txt(x + (day() < 10 ? 4 : 2), oy + 6, str(day()), self.ct_c)
     elif p == 1
-      # temperature centered in the panel area; 3 px per character plus 1 px gaps
+      # temperature centered in the panel area: 3 px digits and a 2 px degree sign, 1 px gaps
       var l = self.lbl == nil ? "--" : self.lbl
       var c = self.lbl == nil ? 0x666666 : self.tcol
-      var w = 4 * size(l) + 3
-      if w <= 14
-        self.txt(x + (14 - w) / 2, oy + 6, l + "o", c)
+      var w = 4 * size(l) + 2
+      if w <= 13
+        self.txt(x + (13 - w + m) / 2, oy + 6, l + "o", c)
       elif self.cut == nil || (self.cut >= 50) == self.mine
         # too wide: the firmware bounces it, and a morph switches it halfway instead
-        scroll_text(x, oy + 6, 14, l + "°", self.dim(c), {"mode": "bounce", "speed": 40})
+        scroll_text(x, oy + 6, 13, l + "°", self.dim(c), {"mode": "bounce", "speed": 40})
       end
     elif self.ico == nil
-      self.txt(x + 6, oy + 6, "?", 0x666666)
+      self.txt(x + 5, oy + 6, "?", 0x666666)
     else
-      self.draw_icon(self.ico, x + 3, oy)
+      self.draw_icon(self.ico, x + 3 - m, oy)
     end
   end
 
@@ -291,7 +292,7 @@ class Nimbus
     var oc = self.wc
     if self.nm
       # night mode: no panel, red clock and week bar centered on the display
-      tx = 8
+      tx = 7
       wx = 6
       tc = 0xFF0000
       dc = 0xFF0000
@@ -318,25 +319,25 @@ class Nimbus
         self.cut = nil
       elif tr == "wipe"
         # black sweeps over the old panel, then uncovers the new one
-        var k = el * 28 / 500
-        if k < 14
+        var k = el * 26 / 500
+        if k < 13
           self.draw_panel(self.prev, 0, 0)
           rect_fill(self.px, 0, k, 8, 0x000000)
         else
           self.draw_panel(self.panel, 0, 0)
-          rect_fill(self.px + k - 14, 0, 28 - k, 8, 0x000000)
+          rect_fill(self.px + k - 13, 0, 26 - k, 8, 0x000000)
         end
       else
-        # scroll by 8 px (down/up) or slide by 14 px (left/right), the new panel following the old one
+        # scroll by 8 px (down/up) or slide by 13 px (left/right), the new panel following the old one
         var v = tr == "down" || tr == "up"
         var s = tr == "down" || tr == "right" ? 1 : -1
-        var n = v ? 8 : 14
+        var n = v ? 8 : 13
         var d = el * n / 500 * s
         var e = d - n * s
         self.draw_panel(self.prev, v ? 0 : d, v ? d : 0)
         self.draw_panel(self.panel, v ? 0 : e, v ? e : 0)
         # hide whatever slid out of the panel area under the clock
-        rect_fill(self.px == 0 ? 14 : 0, 0, 18, 8, 0x000000)
+        rect_fill(self.px == 0 ? 13 : 0, 0, 19, 8, 0x000000)
       end
     end
 
