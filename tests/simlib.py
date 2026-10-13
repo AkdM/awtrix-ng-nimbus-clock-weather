@@ -3,6 +3,7 @@ import json
 import subprocess
 import time
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -50,6 +51,13 @@ class Sim:
             return False
 
     def install(self):
+        # a fresh app for every test: deleting it also clears its store, where Nimbus keeps
+        # state across restarts (night mode switch, saved brightness)
+        try:
+            self.req("DELETE", "/apps/Nimbus")
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
         res = self.req("PUT", "/apps/script/Nimbus", raw=(ROOT / "dist" / ("nimbus-%s.ax" % self.clock)).read_bytes())
         assert res.get("error") is None, res
         self.only("Nimbus")
