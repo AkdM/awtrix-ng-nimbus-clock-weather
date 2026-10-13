@@ -54,8 +54,16 @@ class Nimbus
   # rebuilt once a minute: minute, hour and minute texts, AM/PM, x of the time by day and at
   # night, day number and its offset in the box, week bar colors by day and at night
   var mn, hh, mm, ap, xh, yh, dstr, doff, wb, nb
-  # carousel: panel shown (0 date, 1 temp, 2 weather, 3 room, 4 humidity)
-  var cur
+  # carousel: panel numbers (0 date, 1 temp, 2 weather, 3 room, 4 humidity), index in it,
+  # panel shown and previous one, seconds left, start of the transition (nil when none)
+  var plist, pi, cur, prev, left, an
+  # values (index = panel number), their labels, label widths, x, colors and full texts
+  # for the firmware's bounce scroll; dirty = labels to rebuild in loop()
+  var val, ls, lw, lx, lc, lf, dirty, tick, uc, sens, rdev, hdev, sopt
+  # weather: needed, request, options, refresh period, seconds left, request in flight, icon
+  var wx, url, hopt, wref, wait, busy, ico
+  # built-in icons: palette, compiled art, morph font, drops and flakes; morph state
+  var pal, art, font, fall, cut, mine
 
   def init()
     # settings: read once, saving them restarts the app
@@ -95,7 +103,218 @@ class Nimbus
     self.ta = FX + (r ? 9 : 0)    # time area, 23 px
     self.bx = self.ta + 1         # week bar, 20 px centred in the time area
     self.mn = -1
-    self.cur = 0
+    # carousel
+    self.plist = []
+    for m : re.matchall("[a-z]+", string.tolower(store.get("panels")))
+      var i = ["date", "temp", "weather", "room", "humidity"].find(m)
+      if i != nil self.plist.push(i) end
+    end
+    if size(self.plist) == 0 self.plist.push(0) end
+    self.pi = -1
+    self.cur = -1
+    self.left = 0
+    self.val = [nil, nil, nil, nil, nil]
+    self.ls = [nil, nil, nil, nil, nil]
+    self.lw = [0, 0, 0, 0, 0]
+    self.lx = [0, 0, 0, 0, 0]
+    self.lc = [0, 0, 0, 0, 0]
+    self.lf = [nil, nil, nil, nil, nil]
+    self.dirty = true
+    self.tick = 0
+    self.sopt = {"mode": "bounce", "speed": 40}
+
+    # weather, only when a panel shows it
+    self.wx = self.plist.find(1) != nil || self.plist.find(2) != nil
+    self.url = "http://api.open-meteo.com/v1/forecast?latitude=" + str(store.get("lat")) +
+               "&longitude=" + str(store.get("lon")) + "&current=temperature_2m,weather_code,is_day"
+    self.hopt = {"find": "\"current\":{", "keep": 200}
+    self.wref = store.get("wref") * 60
+    self.wait = 0
+    self.busy = false
+
+    # room values: an MQTT topic, or the clock's own sensor when the topic is empty
+    var t = store.get("rtopic")
+    self.rdev = size(t) == 0
+    if !self.rdev && self.plist.find(3) != nil mqtt.subscribe(t, / tp, pl -> self.on_msg(3, pl)) end
+    t = store.get("htopic")
+    self.hdev = size(t) == 0
+    if !self.hdev && self.plist.find(4) != nil mqtt.subscribe(t, / tp, pl -> self.on_msg(4, pl)) end
+    self.sens = (self.rdev && self.plist.find(3) != nil) || (self.hdev && self.plist.find(4) != nil)
+
+    # built-in 8x8 icons: one letter per pixel ("." is off), "/" starts the next row, compiled
+    # once into bytes of (x, y, palette index) for each lit pixel; palette entries 7 and 8 change
+    # while drawing (sun rays, star)
+    self.pal = [0xFFC800, 0xFF7800, 0xFFFFFF, 0xB4B4B4, 0x6E6E6E, 0x3C3C3C, 0xF0DC8C, 0, 0, 0]
+    var keys = "YOWLGDMrS#"
+    var glyphs = "0123456789-?%"
+    var src = ["...rr/.r....r/..OYYO/r.YYYY.r/r.YYYY.r/..OYYO/.r....r/...rr",          # 0 sun
+               "..MM/.MM...S/MMM/MMM/MMM/MMMM/.MMMMMM/..MMM",                       # 1 clear night
+               "...Y..Y/.Y..OYO/...OYYYO/..LLYYYY/.LWWLLYO/LWWWWWL/WWWWWWWL/GLLLLLG", # 2 partly cloudy
+               "....GG/..GGGGG/.LLGGGGG/LWWLGGGG/WWWWLGGG/WWWWWWL/GLLLLLG",          # 3 cloudy
+               "/.LLLLLL//GGGG.GGG//.LLLLLL//GG.GGGG",                             # 4 fog
+               "/LLLLLL//.GGGG.GG//..LLLLLL//.GG.GGGG",                            # 5 fog, second frame
+               "...LL/.LLWWL/LLWWWWL/LWWWWWWL/GLLLLLLG",                           # 6 rain and snow cloud
+               "...GG/.GGLLGG/GLLLLLLG/DGGGGGGD",                                  # 7 storm cloud
+               ".....YY/....YY/...YYYY/....YY/...YY"]                              # 8 bolt, from row 3
+    self.art = []
+    self.font = {}
+    var i = 0
+    while i < size(src)
+      var a = src[i]
+      var b = bytes()
+      var x = 0
+      var y = 0
+      var j = 0
+      while j < size(a)
+        var ch = a[j]
+        if ch == "/"
+          y += 1
+          x = 0
+        else
+          var k = string.find(keys, ch)
+          if k >= 0
+            b.add(x, 1)
+            b.add(y, 1)
+            b.add(k, 1)
+          end
+          x += 1
+        end
+        j += 1
+      end
+      if i < 9 self.art.push(b) else self.font[glyphs[i - 9]] = b end
+      i += 1
+    end
+    # drops (rain) then flakes (snow): column and phase of three falling pixels
+    self.fall = bytes("010004010602010003020601")
+  end
+
+  def loop()
+    # carousel: the next listed panel that has something to show, the date if none has
+    self.left -= 1
+    if self.left <= 0
+      var n = size(self.plist)
+      var i = self.pi
+      var k = 1
+      while k <= n
+        i = (self.pi + k) % n
+        var q = self.plist[i]
+        if (q != 3 && q != 4) || self.ls[q] != nil break end
+        k += 1
+      end
+      var p = self.plist[i]
+      if (p == 3 || p == 4) && self.ls[p] == nil p = 0 end
+      self.pi = i
+      if p != self.cur
+        if self.cur >= 0 self.an = now_ms() end
+        self.prev = self.cur
+        self.cur = p
+      end
+      self.left = p == 0 ? self.ddur : self.pdur
+    end
+
+    # weather: one request in flight, retried after a minute unless on_weather() succeeds
+    self.wait -= 1
+    if self.wx && self.wait <= 0 && !self.busy
+      self.busy = true
+      self.wait = 60
+      http.get(self.url, / b, s -> self.on_weather(b, s), self.hopt)
+    end
+
+    # the clock's own sensors, every 10 s, only when a room panel uses them
+    self.tick += 1
+    if self.sens && self.tick % 10 == 1
+      if self.rdev
+        var v = sensor.temperature()
+        if v != self.val[3]
+          self.val[3] = v
+          self.dirty = true
+        end
+      end
+      if self.hdev
+        var v = sensor.humidity()
+        if v != self.val[4]
+          self.val[4] = v
+          self.dirty = true
+        end
+      end
+    end
+    var uc = settings.get("useCelsius")
+    if uc != self.uc
+      self.uc = uc
+      self.dirty = true
+    end
+
+    if self.dirty
+      # labels of the temperature, room temperature and humidity panels
+      self.dirty = false
+      var p = 1
+      while p < 5
+        if p != 2
+          var v = self.val[p]
+          var s = nil
+          var c = p == 3 ? self.rcol : self.hcol
+          if p == 1
+            if v == nil
+              s = "--"
+              c = 0x666666
+            else
+              # color from the temperature in °C: blue up to 10, orange at 20, red from 30
+              var t = clamp(round(v), 10, 30)
+              c = hsv(t < 20 ? 200 - (t - 10) * 17 : 30 - (t - 20) * 3, 100, 100)
+              if !self.uc v = v * 1.8 + 32 end
+            end
+          elif v != nil && p == 3 && self.rdev && !self.uc
+            v = v * 1.8 + 32
+          end
+          if v != nil s = str(round(v)) + (p == 4 ? "%" : "") end
+          self.ls[p] = s
+          if s != nil
+            # temperatures end with a 2 px degree dot, humidity with the font's "%"
+            var w = p == 4 ? text_width(s) - 1 : 4 * size(s) + 2
+            var x = w <= 9 ? (9 - w) / 2 : 0
+            self.lx[p] = FX + (self.rt ? x : 32 - x - w)
+            self.lw[p] = w
+            self.lc[p] = c
+            self.lf[p] = p == 4 ? s : s + "°"
+          end
+        end
+        p += 1
+      end
+    end
+  end
+
+  def on_weather(b, s)
+    self.busy = false
+    if s != 200 || b == nil return end
+    var t = re.search("temperature_2m\":([-0-9.]+)", b)
+    var c = re.search("weather_code\":([0-9]+)", b)
+    var d = re.search("is_day\":([0-9])", b)
+    if t == nil || c == nil return end
+    var k = int(c[1])
+    var n = 0
+    if k >= 95 n = 7
+    elif k >= 85 n = 6
+    elif k >= 80 n = 5
+    elif k >= 71 n = 6
+    elif k >= 51 n = 5
+    elif k >= 45 n = 4
+    elif k == 3 n = 3
+    elif d != nil && d[1] == "0" n = 1
+    elif k > 0 n = 2
+    end
+    self.ico = n
+    self.val[1] = num(t[1])
+    self.wait = self.wref
+    self.dirty = true
+  end
+
+  # MQTT message for panel k (3 room temperature, 4 humidity): the first number in it
+  def on_msg(k, p)
+    var m = re.search("-?[0-9]+[.]?[0-9]*", str(p))
+    if m != nil
+      self.val[k] = num(m[0])
+      self.dirty = true
+    end
   end
 
   # color c at brightness l (0..1), each channel rounded like the firmware does
@@ -103,22 +322,117 @@ class Nimbus
     return rgb(int(((c >> 16) & 255) * l + 0.5), int(((c >> 8) & 255) * l + 0.5), int((c & 255) * l + 0.5))
   end
 
-  # one panel at offset (ox, oy) and brightness l
+  # one panel at offset (ox, oy) and brightness l; during a morph (self.cut set) every pixel
+  # goes through put() and text uses the copied font
   def panel(p, ox, oy, l)
+    if p < 0 return end
+    var nat = self.cut == nil
+    var s = nil
+    var c = 0
+    var x = 0
+    var y = oy + 6
     if p == 0
       # the official calendar: body, header, then the day number at baseline 7
-      var x = self.sx + ox
+      x = self.sx + ox
       var b = self.cbc
       var h = self.chc
-      var c = self.ctc
       if l < 1
         b = self.scale(b, l)
         h = self.scale(h, l)
-        c = self.scale(c, l)
       end
-      rect_fill(x, oy, 9, 8, b)
-      rect_fill(x, oy, 9, 2, h)
-      text(x + self.doff, oy + 7, self.dstr, c)
+      if nat
+        rect_fill(x, oy, 9, 8, b)
+        rect_fill(x, oy, 9, 2, h)
+      else
+        self.put(x, oy, 9, 8, b)
+        self.put(x, oy, 9, 2, h)
+      end
+      s = self.dstr
+      c = self.ctc
+      x += self.doff
+      y = oy + 7
+    elif p == 2
+      if self.ico == nil
+        s = "?"
+        c = 0x666666
+        x = self.qx + ox
+      else
+        # built-in icon with its animation: rays, star, fog, falling drops or flakes, bolt
+        var t = now_ms()
+        var k = self.ico
+        self.pal[7] = (t / 600) % 2 ? 0xFF7800 : 0xFFC800
+        self.pal[8] = (t / 900) % 2 ? 0x505050 : 0xFFFFFF
+        var bb = self.art[k < 4 ? k : (k == 4 ? 4 + (t / 700) % 2 : (k == 7 ? 7 : 6))]
+        var dy = 0
+        x = self.ix + ox
+        while bb != nil
+          var i = 0
+          while i < size(bb)
+            var cc = self.pal[bb[i + 2]]
+            if l < 1 cc = self.scale(cc, l) end
+            if nat pixel(x + bb[i], oy + dy + bb[i + 1], cc)
+            else self.put(x + bb[i], oy + dy + bb[i + 1], 1, 1, cc) end
+            i += 3
+          end
+          var f = t % 1870
+          if k == 7 && dy == 0 && (f < 90 || (f >= 180 && f < 270))
+            bb = self.art[8]
+            dy = 3
+          else
+            bb = nil
+          end
+        end
+        if k == 5 || k == 6
+          var o = k == 5 ? 0 : 6
+          var f = t / (k == 5 ? 180 : 350)
+          var cc = k == 5 ? 0x2890FF : 0xFFFFFF
+          if l < 1 cc = self.scale(cc, l) end
+          var i = 0
+          while i < 6
+            var px = x + self.fall[o + i]
+            var py = oy + 5 + (f + self.fall[o + i + 1]) % 3
+            if nat pixel(px, py, cc) else self.put(px, py, 1, 1, cc) end
+            i += 2
+          end
+        end
+      end
+    else
+      # temperature, room temperature or humidity label
+      s = self.ls[p]
+      if s == nil return end
+      c = self.lc[p]
+      if self.lw[p] > 11
+        # too wide: the firmware bounces it; a morph switches it halfway instead
+        if nat || (self.cut >= 50) == self.mine
+          scroll_text(self.ax + ox, y, 11, self.lf[p], l < 1 ? self.scale(c, l) : c, self.sopt)
+        end
+        return
+      end
+      x = self.lx[p] + ox
+      if p != 4
+        # temperatures: a solid 2x2 degree dot after the digits
+        var cc = l < 1 ? self.scale(c, l) : c
+        var dx = x + 4 * size(s)
+        if nat rect_fill(dx, oy + 1, 2, 2, cc) else self.put(dx, oy + 1, 2, 2, cc) end
+      end
+    end
+    if s != nil
+      if l < 1 c = self.scale(c, l) end
+      if nat
+        text(x, y, s, c)
+      else
+        # copied font: each lit pixel through put()
+        var i = 0
+        while i < size(s)
+          var g = self.font[s[i]]
+          var j = 0
+          while j < size(g)
+            self.put(x + i * 4 + g[j], y - 5 + g[j + 1], 1, 1, c)
+            j += 3
+          end
+          i += 1
+        end
+      end
     end
   end
 
