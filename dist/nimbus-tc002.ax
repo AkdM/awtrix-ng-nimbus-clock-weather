@@ -64,9 +64,8 @@ class Nimbus
   var wx, url, hopt, wref, wait, busy, ico
   # built-in icons: palette, compiled art, morph font, drops and flakes; morph state
   var pal, art, font, fall, cut, mine, rank
-  # night mode: shown now (nil until the first loop), manual switch, MQTT replay pending,
-  # rotation paused by us
-  var dark, nman, replay, paused
+  # night mode: shown now (nil until the first loop), manual switch, MQTT replay pending
+  var dark, nman, replay
 
   def init()
     # settings: read once, saving them restarts the app
@@ -211,7 +210,6 @@ class Nimbus
     end
     self.nman = store.get("nstate", s)
     self.replay = true
-    self.paused = false
     t = store.get("ntopic")
     if size(t) > 0 mqtt.subscribe(t, / tp, pl -> self.on_msg(0, pl)) end
   end
@@ -316,12 +314,17 @@ class Nimbus
     var dk = self.nman || self.nauto && h >= 0 && (f > t ? h >= f || h < t : h >= f && h < t)
     if dk != self.dark
       self.dark = dk
+      # the rotation pause belongs to the firmware and outlives a restart (saving the settings
+      # restarts the app), so whether Nimbus set it is kept in the store
+      if dk && self.npause
+        rotation.show()
+        rotation.pause()
+        store.set("npz", true)
+      elif store.get("npz", false)
+        rotation.resume()
+        store.set("npz", false)
+      end
       if dk
-        if self.npause
-          rotation.show()
-          rotation.pause()
-          self.paused = true
-        end
         if self.nbri > 0
           if !store.get("nbsave", false)
             store.set("nbsave", [settings.get("autoBrightness"), settings.get("brightness")])
@@ -330,10 +333,6 @@ class Nimbus
           settings.set("brightness", self.nbri)
         end
       else
-        if self.paused
-          rotation.resume()
-          self.paused = false
-        end
         var sv = store.get("nbsave", false)
         if sv
           settings.set("autoBrightness", sv[0])

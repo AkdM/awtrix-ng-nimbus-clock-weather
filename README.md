@@ -61,7 +61,7 @@ Then open the app settings and set your **latitude** and **longitude** (the defa
 | Night mode | Night mode | off | Turns night mode on |
 | Night mode | Automatic night mode, From, Until | off, 22 h, 7 h | Night mode between those hours |
 | Night mode | Week bar in night mode | on | |
-| Night mode | Pause app rotation in night mode | off | A button press or the web UI ends the pause |
+| Night mode | Pause app rotation in night mode | off | Keeps Nimbus on screen at night; pressing a button or switching apps ends the pause early |
 | Night mode | Night brightness | 0 | 0 keeps the device's brightness; otherwise set at night and restored after (device-wide) |
 | Night mode | MQTT topic | empty | Payload `on`/`off`, `true`/`false` or `1`/`0` |
 

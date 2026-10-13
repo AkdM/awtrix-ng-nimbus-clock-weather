@@ -95,5 +95,22 @@ class Switching(unittest.TestCase):
             sim.only("Nimbus")
 
 
+    def test_rotation_pause_ends_when_night_is_switched_off_in_the_settings(self):
+        # saving the settings restarts the app; the pause it set at night must not outlive the night
+        sim = self.sim
+        sim.settings(appDurationMs=3000, timeMode=1, timeColor="#FFFFFF")
+        try:
+            sim.config(**dict(BASE, panels="temp", npause=True, night=True))
+            sim.req("PUT", "/apps/order", {"order": ["Nimbus", "Time"], "disabled": ["Date"]})
+            time.sleep(2)
+            self.assertTrue(all(red(f) for _, f in sim.frames(8)))       # night, Nimbus stays on screen
+            sim.config(**dict(BASE, panels="temp", npause=True, night=False))
+            # the official Time app (calendar header at the frame's top-left) must come round again
+            frames = sim.frames(12)
+            self.assertTrue(any(f[sim.fx] == 0xFF0000 for _, f in frames), "rotation still paused")
+        finally:
+            sim.settings(appDurationMs=5000)
+            sim.only("Nimbus")
+
 if __name__ == "__main__":
     unittest.main()
