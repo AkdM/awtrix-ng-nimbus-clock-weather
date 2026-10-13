@@ -64,6 +64,9 @@ class Nimbus
   var wx, url, hopt, wref, wait, busy, ico
   # built-in icons: palette, compiled art, morph font, drops and flakes; morph state
   var pal, art, font, fall, cut, mine, rank
+  # night mode: shown now (nil until the first loop), manual switch, MQTT replay pending,
+  # rotation paused by us
+  var dark, nman, replay, paused
 
   def init()
     # settings: read once, saving them restarts the app
@@ -199,6 +202,18 @@ class Nimbus
       self.rank.add(g % 100, 1)
       i += 1
     end
+    # night mode switch: the setting or MQTT, whichever changed last; kept in the store so it
+    # survives restarts
+    var s = store.get("night")
+    if s != store.get("nset")
+      store.set("nset", s)
+      store.set("nstate", s)
+    end
+    self.nman = store.get("nstate", s)
+    self.replay = true
+    self.paused = false
+    t = store.get("ntopic")
+    if size(t) > 0 mqtt.subscribe(t, / tp, pl -> self.on_msg(0, pl)) end
   end
 
   def loop()
@@ -294,6 +309,39 @@ class Nimbus
         p += 1
       end
     end
+    # night mode: the manual switch, or the automatic hours (the window may wrap past midnight)
+    var h = hour()
+    var f = self.nfrom
+    var t = self.nto
+    var dk = self.nman || self.nauto && h >= 0 && (f > t ? h >= f || h < t : h >= f && h < t)
+    if dk != self.dark
+      self.dark = dk
+      if dk
+        if self.npause
+          rotation.show()
+          rotation.pause()
+          self.paused = true
+        end
+        if self.nbri > 0
+          if !store.get("nbsave", false)
+            store.set("nbsave", [settings.get("autoBrightness"), settings.get("brightness")])
+          end
+          settings.set("autoBrightness", false)
+          settings.set("brightness", self.nbri)
+        end
+      else
+        if self.paused
+          rotation.resume()
+          self.paused = false
+        end
+        var sv = store.get("nbsave", false)
+        if sv
+          settings.set("autoBrightness", sv[0])
+          settings.set("brightness", sv[1])
+          store.set("nbsave", false)
+        end
+      end
+    end
   end
 
   def on_weather(b, s)
@@ -321,12 +369,26 @@ class Nimbus
     self.dirty = true
   end
 
-  # MQTT message for panel k (3 room temperature, 4 humidity): the first number in it
+  # MQTT message: k 0 = night mode switch, 3 room temperature, 4 humidity
   def on_msg(k, p)
-    var m = re.search("-?[0-9]+[.]?[0-9]*", str(p))
-    if m != nil
-      self.val[k] = num(m[0])
-      self.dirty = true
+    if k == 0
+      var v = string.tolower(str(p))
+      v = v == "on" || v == "true" || v == "1"
+      # the first message after a restart can be the broker replaying its retained message:
+      # skip it if that value was already applied, so a later change of the setting still wins
+      var r = self.replay
+      self.replay = false
+      if r && v == store.get("nmqtt") return end
+      store.set("nmqtt", v)
+      store.set("nstate", v)
+      self.nman = v
+    else
+      # the first number in the message, so "21.5", "21.5 °C" and {"temperature": 21.5} work
+      var m = re.search("-?[0-9]+[.]?[0-9]*", str(p))
+      if m != nil
+        self.val[k] = num(m[0])
+        self.dirty = true
+      end
     end
   end
 
@@ -498,54 +560,58 @@ class Nimbus
     end
 
     clear()
-    # panel first, so the clock drawn afterwards stays on top; transitions last 500 ms
-    var el = self.an == nil ? 500 : now_ms() - self.an
-    var tr = self.tran
-    if el >= 500 || tr == 7
-      self.an = nil
-      self.panel(self.cur, 0, 0, 1)
-    else
-      var a = self.ax
-      if tr == 0
-        # wipe: black sweeps over the old panel, then uncovers the new one
-        var k = el * 22 / 500
-        if k < 11
-          self.panel(self.prev, 0, 0, 1)
-          if k > 0 rect_fill(a, 0, k, 8, 0) end
-        else
-          self.panel(self.cur, 0, 0, 1)
-          rect_fill(a + k - 11, 0, 22 - k, 8, 0)
-        end
-      elif tr == 1
-        # fade: the old panel to black, then the new one from black
-        self.panel(el < 250 ? self.prev : self.cur, 0, 0, (math.cos(2 * math.pi * el / 500.0) + 1) * 0.5)
-      elif tr == 2
-        # morph: each pixel switches to the new panel at its own random moment
-        self.cut = el / 5
-        self.mine = false
-        self.panel(self.prev, 0, 0, 1)
-        self.mine = true
+    var dk = self.dark
+    if !dk
+      # panel first, so the clock drawn afterwards stays on top; transitions last 500 ms
+      var el = self.an == nil ? 500 : now_ms() - self.an
+      var tr = self.tran
+      if el >= 500 || tr == 7
+        self.an = nil
         self.panel(self.cur, 0, 0, 1)
-        self.cut = nil
       else
-        # down/up scroll by 8 px, left/right slide by the panel area's 11 px
-        var v = tr < 5
-        var s = tr == 3 || tr == 6 ? 1 : -1
-        var n = v ? 8 : 11
-        var d = el * n / 500 * s
-        var e = d - n * s
-        self.panel(self.prev, v ? 0 : d, v ? d : 0, 1)
-        self.panel(self.cur, v ? 0 : e, v ? e : 0, 1)
+        var a = self.ax
+        if tr == 0
+          # wipe: black sweeps over the old panel, then uncovers the new one
+          var k = el * 22 / 500
+          if k < 11
+            self.panel(self.prev, 0, 0, 1)
+            if k > 0 rect_fill(a, 0, k, 8, 0) end
+          else
+            self.panel(self.cur, 0, 0, 1)
+            rect_fill(a + k - 11, 0, 22 - k, 8, 0)
+          end
+        elif tr == 1
+          # fade: the old panel to black, then the new one from black
+          self.panel(el < 250 ? self.prev : self.cur, 0, 0, (math.cos(2 * math.pi * el / 500.0) + 1) * 0.5)
+        elif tr == 2
+          # morph: each pixel switches to the new panel at its own random moment
+          self.cut = el / 5
+          self.mine = false
+          self.panel(self.prev, 0, 0, 1)
+          self.mine = true
+          self.panel(self.cur, 0, 0, 1)
+          self.cut = nil
+        else
+          # down/up scroll by 8 px, left/right slide by the panel area's 11 px
+          var v = tr < 5
+          var s = tr == 3 || tr == 6 ? 1 : -1
+          var n = v ? 8 : 11
+          var d = el * n / 500 * s
+          var e = d - n * s
+          self.panel(self.prev, v ? 0 : d, v ? d : 0, 1)
+          self.panel(self.cur, v ? 0 : e, v ? e : 0, 1)
+        end
+        # nothing outside the panel area: blacked out before the clock is drawn
+        if a > 0 rect_fill(0, 0, a, 8, 0) end
+        if a + 11 < width() rect_fill(a + 11, 0, width() - a - 11, 8, 0) end
+        if height() > 8 rect_fill(a, 8, 11, height() - 8, 0) end
       end
-      # nothing outside the panel area: blacked out before the clock is drawn
-      if a > 0 rect_fill(0, 0, a, 8, 0) end
-      if a + 11 < width() rect_fill(a + 11, 0, width() - a - 11, 8, 0) end
-      if height() > 8 rect_fill(a, 8, 11, height() - 8, 0) end
     end
 
-    # time: hours, colon (steady, blink or pulse, like the official app), minutes
-    var tc = self.tcol
-    var x = self.xh
+    # time: hours, colon (steady, blink or pulse, like the official app), minutes; at night the
+    # official plain mode in red, centred in the frame, with AM/PM when enabled
+    var tc = dk ? 0xFF0000 : self.tcol
+    var x = dk ? self.yh : self.xh
     x += text(x, 6, self.hh, tc)
     var lv = 1
     if self.tsep == 1
@@ -554,15 +620,19 @@ class Nimbus
       lv = 0.5 * (1 - math.cos(2 * math.pi * (epoch_ms() % 2000) / 2000.0))
     end
     if lv > 0 text(x, 6, ":", lv < 1 ? self.scale(tc, lv) : tc) end
-    text(x + 2, 6, self.mm, tc)
+    x += 2
+    x += text(x, 6, self.mm, tc)
+    if dk && self.ap != nil text(x, 6, self.ap, tc) end
 
-    # week bar: 2 px segments with 1 px gaps under the time
-    if self.wbar
-      var bx = self.bx
+    # week bar: 2 px segments under the time, 3 px across the frame at night
+    if dk ? self.nbar : self.wbar
+      var sw = dk ? 3 : 2
+      var bx = dk ? FX + 2 : self.bx
+      var cl = dk ? self.nb : self.wb
       var i = 0
       while i < 7
-        line(bx, BY, bx + 1, BY, self.wb[i])
-        bx += 3
+        line(bx, BY, bx + sw - 1, BY, cl[i])
+        bx += sw + 1
         i += 1
       end
     end
