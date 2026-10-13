@@ -1,0 +1,99 @@
+# @name Nimbus
+# @desc Clock with calendar, weather and room values, like the official Time app
+# @author AkdM
+# @version 2.0
+# @display 32x8
+# @config t24 bool "24-hour clock" default=true group="Time"
+# @config tlz bool "Leading zero" default=true group="Time"
+# @config tampm bool "AM/PM indicator" default=false group="Time" help="12-hour clock; shown in night mode, like the official Time app"
+# @config tsep select "Colon" options=steady,blink,pulse default=pulse group="Time"
+# @config tcol color "Time color" default=#FFFFFF group="Time"
+# @config tright bool "Clock on the right" default=true group="Time"
+# @config chc color "Header color" default=#FF0000 group="Calendar"
+# @config ctc color "Text color" default=#000000 group="Calendar"
+# @config cbc color "Body color" default=#FFFFFF group="Calendar"
+# @config wbar bool "Week bar" default=true group="Week bar"
+# @config wmon bool "Week starts Monday" default=true group="Week bar"
+# @config wtd color "Today" default=#FFFFFF group="Week bar"
+# @config wod color "Other weekdays" default=#666666 group="Week bar"
+# @config wtw color "Today on a weekend" default=#FFFFFF group="Week bar"
+# @config wow color "Other weekend days" default=#666666 group="Week bar"
+# @config panels text "Panels" default="date,temp,weather" group="Carousel" help="In order, separated by commas: date, temp, weather, room, humidity"
+# @config ddur slider "Date duration" default=10 min=1 max=60 unit=s group="Carousel"
+# @config pdur slider "Other panels duration" default=3 min=1 max=60 unit=s group="Carousel"
+# @config tran select "Transition" options=wipe,fade,morph,down,up,left,right,none default=wipe group="Carousel"
+# @config lat number "Latitude" default=48.8566 min=-90 max=90 step=0.0001 group="Weather"
+# @config lon number "Longitude" default=2.3522 min=-180 max=180 step=0.0001 group="Weather"
+# @config wref number "Refresh" default=15 min=5 max=120 unit=min group="Weather"
+# @config rtopic text "Room temperature MQTT topic" default="" group="Room" help="Empty uses the clock's sensor"
+# @config htopic text "Humidity MQTT topic" default="" group="Room" help="Empty uses the clock's sensor"
+# @config rcol color "Room temperature color" default=#FFFFFF group="Room"
+# @config hcol color "Humidity color" default=#00AAFF group="Room"
+# @config night bool "Night mode" default=false group="Night mode"
+# @config nauto bool "Automatic night mode" default=false group="Night mode" help="Between the hours below"
+# @config nfrom number "From" default=22 min=0 max=23 unit=h group="Night mode"
+# @config nto number "Until" default=7 min=0 max=23 unit=h group="Night mode"
+# @config nbar bool "Week bar in night mode" default=true group="Night mode"
+# @config npause bool "Pause app rotation in night mode" default=false group="Night mode"
+# @config nbri number "Night brightness" default=0 min=0 max=255 group="Night mode" help="0 keeps the device's brightness; otherwise set at night and restored after"
+# @config ntopic text "MQTT topic" default="" group="Night mode" help="Payload on/off, true/false or 1/0"
+
+import math
+import string
+
+# layout: build.py rewrites these two lines for each clock
+var FX = 0 # x of the 32 px content frame
+var BY = 7 # row of the week bar
+
+class Nimbus
+  # settings, read once in init()
+  var t24, tlz, tampm, tsep, tcol, chc, ctc, cbc, wbar, wmon, wtd, wod, wtw, wow
+  var tran, ddur, pdur, rcol, hcol, nauto, nfrom, nto, nbar, npause, nbri
+  # layout in display x: panel on the left (rt), calendar box, icon, "?", panel area, time area, week bar
+  var rt, sx, ix, qx, ax, ta, bx
+
+  def init()
+    # settings: read once, saving them restarts the app
+    self.t24 = store.get("t24")
+    self.tlz = store.get("tlz")
+    self.tampm = store.get("tampm")
+    self.tsep = ["steady", "blink", "pulse"].find(store.get("tsep"))
+    self.tcol = store.get("tcol")
+    self.chc = store.get("chc")
+    self.ctc = store.get("ctc")
+    self.cbc = store.get("cbc")
+    self.wbar = store.get("wbar")
+    self.wmon = store.get("wmon")
+    self.wtd = store.get("wtd")
+    self.wod = store.get("wod")
+    self.wtw = store.get("wtw")
+    self.wow = store.get("wow")
+    self.tran = ["wipe", "fade", "morph", "down", "up", "left", "right", "none"].find(store.get("tran"))
+    self.ddur = store.get("ddur")
+    self.pdur = store.get("pdur")
+    self.rcol = store.get("rcol")
+    self.hcol = store.get("hcol")
+    self.nauto = store.get("nauto")
+    self.nfrom = store.get("nfrom")
+    self.nto = store.get("nto")
+    self.nbar = store.get("nbar")
+    self.npause = store.get("npause")
+    self.nbri = store.get("nbri")
+
+    # layout in the 32 px frame; "Clock on the right" (default) puts the panel on the left
+    var r = store.get("tright")
+    self.rt = r
+    self.sx = FX + (r ? 0 : 23)   # calendar box, 9 px
+    self.ix = FX + (r ? 0 : 24)   # weather icon, 8 px
+    self.qx = FX + (r ? 3 : 26)   # "?" placeholder
+    self.ax = FX + (r ? 0 : 21)   # panel area used by the transitions, 11 px
+    self.ta = FX + (r ? 9 : 0)    # time area, 23 px
+    self.bx = self.ta + 1         # week bar, 20 px centred in the time area
+  end
+
+  def draw()
+    clear()
+  end
+end
+
+return Nimbus()
