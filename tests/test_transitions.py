@@ -6,6 +6,7 @@ from simlib import need, region
 BASE = dict(t24=True, tlz=True, tampm=False, tsep="steady", tcol=0xFFFFFF, tright=True, chc=0xFF0000,
             ctc=0x000000, cbc=0xFFFFFF, wbar=True, wmon=True, wtd=0xFFFFFF, wod=0x666666, wtw=0xFFFFFF,
             wow=0x666666, ddur=1, pdur=1, night=False, nauto=False, rtopic="", htopic="")
+BASE_HEADER = 0xFF0000
 TRANSITIONS = ["wipe", "fade", "morph", "down", "up", "left", "right", "none"]
 
 
@@ -17,6 +18,11 @@ def outside(sim, f):
 
 def area(sim, f):
     return tuple(f[y * sim.w + x] for y in range(8) for x in range(sim.fx, sim.fx + 11))
+
+
+def label_colors(a):
+    """Colors lit in the panel area's rows 0-6 (row 7 holds a week-bar segment on the TC001)."""
+    return {v for i, v in enumerate(a) if v and i < 7 * 11}
 
 
 def held(states, n=8):
@@ -31,25 +37,23 @@ def held(states, n=8):
 
 
 class Transitions(unittest.TestCase):
-    def references(self, sim):
-        refs = []
-        for p in ("date", "temp"):
-            sim.config(**dict(BASE, panels=p, tran="none"))
-            t0 = time.time()
-            while True:   # the temperature shows "--" in grey until the weather answer arrives
-                a = area(sim, sim.screen()[2])
-                if 0x666666 not in a or time.time() - t0 > 15:
-                    break
-            refs.append(a)
-        return refs
+    def wait_for_weather(self, sim):
+        """Each restart fetches the weather; until it answers the temperature is a grey "--"."""
+        t0 = time.time()
+        while time.time() - t0 < 15:
+            colors = label_colors(area(sim, sim.screen()[2]))
+            if colors and 0x666666 not in colors and BASE_HEADER not in colors:
+                return
+        raise AssertionError("no weather answer within 15 s")
 
     def check(self, clock):
         sim = need(clock)
         sim.install()
-        refs = self.references(sim)
+        sim.config(**dict(BASE, panels="date", tran="none"))
+        date = area(sim, sim.screen()[2])
         for tr in TRANSITIONS:
             sim.config(**dict(BASE, panels="date,temp", tran=tr))
-            time.sleep(3)   # the weather answer arrives after the restart
+            self.wait_for_weather(sim)
             m = time.localtime().tm_min
             frames = sim.frames(5)
             if time.localtime().tm_min != m:
@@ -58,17 +62,21 @@ class Transitions(unittest.TestCase):
             for _, f in frames:
                 self.assertEqual(outside(sim, f), base, "%s %s: pixels outside the panel area changed" % (clock, tr))
             states = [area(sim, f) for _, f in frames]
-            steady = held(states)
-            self.assertTrue(steady <= set(refs), "%s %s: a still frame is neither panel" % (clock, tr))
-            middle = set(states) - set(refs)
+            still = held(states)
+            # the still frames: the date, and the temperature label (one color) taken from this run,
+            # since the weather can change between runs
+            labels = still - {date}
+            self.assertEqual(len(labels), 1, "%s %s: still frames other than the date: %d" % (clock, tr, len(labels)))
+            temp = labels.pop()
+            self.assertEqual(len(label_colors(temp)), 1, "%s %s: the still label has several colors" % (clock, tr))
+            middle = set(states) - {date, temp}
             if tr == "none":
                 self.assertEqual(middle, set(), tr)
             else:
                 self.assertTrue(middle, "%s %s: no transition frame seen" % (clock, tr))
             if tr == "morph":
-                d, t = refs
                 for s in middle:
-                    self.assertTrue(all(v in (a, b) for v, a, b in zip(s, d, t)), "morph pixel from neither panel")
+                    self.assertTrue(all(v in (a, b) for v, a, b in zip(s, date, temp)), "morph pixel from neither panel")
 
     def test_tc001(self):
         self.check("tc001")
