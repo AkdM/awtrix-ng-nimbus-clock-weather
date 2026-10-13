@@ -63,7 +63,7 @@ class Nimbus
   # weather: needed, request, options, refresh period, seconds left, request in flight, icon
   var wx, url, hopt, wref, wait, busy, ico
   # built-in icons: palette, compiled art, morph font, drops and flakes; morph state
-  var pal, art, font, fall, cut, mine
+  var pal, art, font, fall, cut, mine, rank
 
   def init()
     # settings: read once, saving them restarts the app
@@ -155,7 +155,11 @@ class Nimbus
                "/LLLLLL//.GGGG.GG//..LLLLLL//.GG.GGGG",                            # 5 fog, second frame
                "...LL/.LLWWL/LLWWWWL/LWWWWWWL/GLLLLLLG",                           # 6 rain and snow cloud
                "...GG/.GGLLGG/GLLLLLLG/DGGGGGGD",                                  # 7 storm cloud
-               ".....YY/....YY/...YYYY/....YY/...YY"]                              # 8 bolt, from row 3
+               ".....YY/....YY/...YYYY/....YY/...YY",                              # 8 bolt, from row 3
+               # the firmware's small font for the morph: 0-9, "-", "?", "%"
+               "###/#.#/#.#/#.#/###", ".#/##/.#/.#/###", "###/..#/###/#/###", "###/..#/###/..#/###",
+               "#.#/#.#/###/..#/..#", "###/#/###/..#/###", "###/#/###/#.#/###", "###/..#/..#/..#/..#",
+               "###/#.#/###/#.#/###", "###/#.#/###/..#/###", "//###", "###/..#/.#//.#", "#.#/..#/.#/#/#.#"]
     self.art = []
     self.font = {}
     var i = 0
@@ -186,6 +190,15 @@ class Nimbus
     end
     # drops (rain) then flakes (snow): column and phase of three falling pixels
     self.fall = bytes("010004010602010003020601")
+    # random order in which the pixels switch during a morph
+    self.rank = bytes()
+    var g = 224 # seed picked so the switches spread evenly over the transition
+    i = 0
+    while i < 256
+      g = (g * 75 + 74) % 65537
+      self.rank.add(g % 100, 1)
+      i += 1
+    end
   end
 
   def loop()
@@ -320,6 +333,19 @@ class Nimbus
   # color c at brightness l (0..1), each channel rounded like the firmware does
   def scale(c, l)
     return rgb(int(((c >> 16) & 255) * l + 0.5), int(((c >> 8) & 255) * l + 0.5), int((c & 255) * l + 0.5))
+  end
+
+  # morph: the pixels of a rectangle that already belong to the panel being drawn
+  def put(x, y, w, h, c)
+    var j = y
+    while j < y + h
+      var i = x
+      while i < x + w
+        if (self.rank[((j & 7) << 5) | (i & 31)] < self.cut) == self.mine pixel(i, j, c) end
+        i += 1
+      end
+      j += 1
+    end
   end
 
   # one panel at offset (ox, oy) and brightness l; during a morph (self.cut set) every pixel
@@ -472,7 +498,50 @@ class Nimbus
     end
 
     clear()
-    self.panel(self.cur, 0, 0, 1)
+    # panel first, so the clock drawn afterwards stays on top; transitions last 500 ms
+    var el = self.an == nil ? 500 : now_ms() - self.an
+    var tr = self.tran
+    if el >= 500 || tr == 7
+      self.an = nil
+      self.panel(self.cur, 0, 0, 1)
+    else
+      var a = self.ax
+      if tr == 0
+        # wipe: black sweeps over the old panel, then uncovers the new one
+        var k = el * 22 / 500
+        if k < 11
+          self.panel(self.prev, 0, 0, 1)
+          if k > 0 rect_fill(a, 0, k, 8, 0) end
+        else
+          self.panel(self.cur, 0, 0, 1)
+          rect_fill(a + k - 11, 0, 22 - k, 8, 0)
+        end
+      elif tr == 1
+        # fade: the old panel to black, then the new one from black
+        self.panel(el < 250 ? self.prev : self.cur, 0, 0, (math.cos(2 * math.pi * el / 500.0) + 1) * 0.5)
+      elif tr == 2
+        # morph: each pixel switches to the new panel at its own random moment
+        self.cut = el / 5
+        self.mine = false
+        self.panel(self.prev, 0, 0, 1)
+        self.mine = true
+        self.panel(self.cur, 0, 0, 1)
+        self.cut = nil
+      else
+        # down/up scroll by 8 px, left/right slide by the panel area's 11 px
+        var v = tr < 5
+        var s = tr == 3 || tr == 6 ? 1 : -1
+        var n = v ? 8 : 11
+        var d = el * n / 500 * s
+        var e = d - n * s
+        self.panel(self.prev, v ? 0 : d, v ? d : 0, 1)
+        self.panel(self.cur, v ? 0 : e, v ? e : 0, 1)
+      end
+      # nothing outside the panel area: blacked out before the clock is drawn
+      if a > 0 rect_fill(0, 0, a, 8, 0) end
+      if a + 11 < width() rect_fill(a + 11, 0, width() - a - 11, 8, 0) end
+      if height() > 8 rect_fill(a, 8, 11, height() - 8, 0) end
+    end
 
     # time: hours, colon (steady, blink or pulse, like the official app), minutes
     var tc = self.tcol

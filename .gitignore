@@ -2,3 +2,4 @@
 # Claude-generated design docs and plans, kept local
 docs/superpowers/
 __pycache__/
+.superpowers/
