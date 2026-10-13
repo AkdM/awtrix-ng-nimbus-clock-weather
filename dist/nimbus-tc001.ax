@@ -51,6 +51,11 @@ class Nimbus
   var tran, ddur, pdur, rcol, hcol, nauto, nfrom, nto, nbar, npause, nbri
   # layout in display x: panel on the left (rt), calendar box, icon, "?", panel area, time area, week bar
   var rt, sx, ix, qx, ax, ta, bx
+  # rebuilt once a minute: minute, hour and minute texts, AM/PM, x of the time by day and at
+  # night, day number and its offset in the box, week bar colors by day and at night
+  var mn, hh, mm, ap, xh, yh, dstr, doff, wb, nb
+  # carousel: panel shown (0 date, 1 temp, 2 weather, 3 room, 4 humidity)
+  var cur
 
   def init()
     # settings: read once, saving them restarts the app
@@ -89,10 +94,95 @@ class Nimbus
     self.ax = FX + (r ? 0 : 21)   # panel area used by the transitions, 11 px
     self.ta = FX + (r ? 9 : 0)    # time area, 23 px
     self.bx = self.ta + 1         # week bar, 20 px centred in the time area
+    self.mn = -1
+    self.cur = 0
+  end
+
+  # color c at brightness l (0..1), each channel rounded like the firmware does
+  def scale(c, l)
+    return rgb(int(((c >> 16) & 255) * l + 0.5), int(((c >> 8) & 255) * l + 0.5), int((c & 255) * l + 0.5))
+  end
+
+  # one panel at offset (ox, oy) and brightness l
+  def panel(p, ox, oy, l)
+    if p == 0
+      # the official calendar: body, header, then the day number at baseline 7
+      var x = self.sx + ox
+      var b = self.cbc
+      var h = self.chc
+      var c = self.ctc
+      if l < 1
+        b = self.scale(b, l)
+        h = self.scale(h, l)
+        c = self.scale(c, l)
+      end
+      rect_fill(x, oy, 9, 8, b)
+      rect_fill(x, oy, 9, 2, h)
+      text(x + self.doff, oy + 7, self.dstr, c)
+    end
   end
 
   def draw()
+    if minute() != self.mn
+      # once a minute: the time texts and positions, the day number and the week bar
+      var h = hour()
+      var m = minute()
+      self.mn = m
+      var ap = h < 12 ? " AM" : " PM"
+      if !self.t24
+        h = h % 12
+        if h == 0 h = 12 end
+      end
+      self.hh = (self.tlz && h < 10 ? "0" : "") + str(h)
+      self.mm = (m < 10 ? "0" : "") + str(m)
+      self.ap = !self.t24 && self.tampm ? ap : nil
+      # width as the firmware counts it: ":" advances 2 px, the last blank column is not part of it
+      var w = text_width(self.hh) + 2 + text_width(self.mm) - 1
+      self.xh = self.ta + (23 - w) / 2           # calendar mode: centred in the time area
+      if self.ap != nil w += text_width(self.ap) end
+      self.yh = FX + (32 - w) / 2                # plain mode (night): centred in the frame
+      var d = day()
+      self.dstr = str(d)
+      self.doff = d < 10 ? 3 : 1
+      var wd = weekday()
+      self.wb = []
+      self.nb = []
+      var i = 0
+      while i < 7
+        var c = self.wmon ? (i + 1) % 7 : i     # day shown in column i, 0 = Sunday
+        var we = c == 0 || c == 6
+        self.wb.push(c == wd ? (we ? self.wtw : self.wtd) : (we ? self.wow : self.wod))
+        self.nb.push(c == wd ? 0xFF0000 : 0xC00000)
+        i += 1
+      end
+    end
+
     clear()
+    self.panel(self.cur, 0, 0, 1)
+
+    # time: hours, colon (steady, blink or pulse, like the official app), minutes
+    var tc = self.tcol
+    var x = self.xh
+    x += text(x, 6, self.hh, tc)
+    var lv = 1
+    if self.tsep == 1
+      lv = second() % 2 ? 0 : 1
+    elif self.tsep == 2
+      lv = 0.5 * (1 - math.cos(2 * math.pi * (epoch_ms() % 2000) / 2000.0))
+    end
+    if lv > 0 text(x, 6, ":", lv < 1 ? self.scale(tc, lv) : tc) end
+    text(x + 2, 6, self.mm, tc)
+
+    # week bar: 2 px segments with 1 px gaps under the time
+    if self.wbar
+      var bx = self.bx
+      var i = 0
+      while i < 7
+        line(bx, BY, bx + 1, BY, self.wb[i])
+        bx += 3
+        i += 1
+      end
+    end
   end
 end
 
