@@ -490,6 +490,27 @@ class Nimbus
     return w
   end
 
+  # a filled rectangle; during a morph only the pixels that belong to the panel being drawn
+  def box(x, y, w, h, c)
+    if self.cut == nil rect_fill(x, y, w, h, c) else self.put(x, y, w, h, c) end
+  end
+
+  # s in font f with its ink from (x, y); returns the x after it and a 1 px gap
+  def say(x, y, s, f, c)
+    var i = 0
+    while i < size(s)
+      var g = f[s[i]]
+      var j = 1
+      while j < size(g)
+        self.box(x + g[j], y + g[j + 1], g[j + 2], 1, c)
+        j += 3
+      end
+      x += g[0] + 1
+      i += 1
+    end
+    return x
+  end
+
   # a time on the official clock's cells, centred in w px from x, top row top: a digit takes the
   # widest digit's width, the colon its own, every glyph column doubled and the glyph rows
   # mapped through rows (output row -> glyph row); gap between digits, cg around the colon.
@@ -562,6 +583,105 @@ class Nimbus
     end
   end
 
+  # s in font f into the grid g of a sheet (15 colors a row), its ink from (x, y)
+  def stamp(g, x, y, s, f, c)
+    var i = 0
+    while i < size(s)
+      var b = f[s[i]]
+      var j = 1
+      while j < size(b)
+        var k = 0
+        while k < b[j + 2]
+          g[(y + b[j + 1]) * 15 + x + b[j] + k] = c
+          k += 1
+        end
+        j += 3
+      end
+      x += b[0] + 1
+      i += 1
+    end
+  end
+
+  # the face's sheet for day d of month m (weekday wd) as 16 rows of runs [x, length, color, ...]
+  # over its 15 columns, black included, so that a falling sheet covers the one under it
+  def sheet(d, m, wd)
+    var ring = self.face == 1
+    var hr = ring ? 4 : 7       # header rows; the ring face's paper starts on row 1
+    var g = []
+    var y = 0
+    while y < 16
+      var x = 0
+      while x < 15
+        var c = 0
+        if y >= (ring ? 1 : 0) c = y < hr ? self.chc : self.cbc end
+        if ring && y < 3 && (x == 3 || x == 4 || x == 10 || x == 11) c = y < 2 ? 0x9A9A9A : 0 end
+        g.push(c)
+        x += 1
+      end
+      y += 1
+    end
+    if !ring
+      # the month, or the weekday on the flap face and when the week bar is off
+      var s = self.face == 2 || !self.wbar ? self.wdn[wd * 3 .. wd * 3 + 2] : self.mon[m * 3 - 3 .. m * 3 - 1]
+      self.stamp(g, (15 - self.wid(s, self.sf)) / 2, 1, s, self.sf, self.cbc)
+    end
+    var s = str(d)
+    self.stamp(g, (15 - self.wid(s, self.cf)) / 2, hr + (9 - hr) / 2, s, self.cf, self.ctc)
+    var rows = []
+    y = 0
+    while y < 16
+      var r = []
+      var x = 0
+      while x < 15
+        var c = g[y * 15 + x]
+        var n = 1
+        while x + n < 15 && g[y * 15 + x + n] == c n += 1 end
+        r.push(x)
+        r.push(n)
+        r.push(c)
+        x += n
+      end
+      rows.push(r)
+      y += 1
+    end
+    return rows
+  end
+
+  # one row of a sheet at (x, y) and brightness l
+  def srow(r, x, y, l)
+    var i = 0
+    while i < size(r)
+      self.box(x + r[i], y, r[i + 1], 1, l < 1 ? self.scale(r[i + 2], l) : r[i + 2])
+      i += 3
+    end
+  end
+
+  # the big face's bottom row (rows 11-15): the weekday or an icon from x 1, the date or a value
+  # ending at x 50
+  def row(p, ox, oy, l)
+    var y = oy + 11
+    if p == 0
+      self.say(ox + 1, y, self.wds, self.sf, l < 1 ? self.scale(self.chc, l) : self.chc)
+      self.say(ox + self.dx, y, self.dts, self.sf, l < 1 ? self.scale(self.tcol, l) : self.tcol)
+    end
+  end
+
+  # one panel at offset (ox, oy) and brightness l: in the 16 px column next to the time, or on
+  # the big face's bottom row; during a morph (self.cut set) box() draws through put()
+  def panel(p, ox, oy, l)
+    if p < 0 return end
+    if self.face == 3 return self.row(p, ox, oy, l) end
+    if p == 0
+      # the face's sheet
+      var rs = self.today
+      var y = 0
+      while y < 16
+        self.srow(rs[y], ox, oy + y, l)
+        y += 1
+      end
+    end
+  end
+
   def draw()
     if minute() != self.mn
       # once a minute: the time cells, the flap cards and the week bar; once a day the sheets
@@ -588,7 +708,32 @@ class Nimbus
         self.sd = b[0]
         self.sc = b[1]
       end
+      var d = day()
       var wd = weekday()
+      if d != self.dd
+        # a new day
+        self.dd = d
+        var mo = month()
+        var y = year()
+        if f < 3
+          self.today = self.sheet(d, mo, wd)
+          var pd = d - 1
+          var pm = mo
+          if pd == 0
+            pm = mo == 1 ? 12 : mo - 1
+            var py = mo == 1 ? y - 1 : y
+            pd = pm == 2 ? (py % 4 == 0 && (py % 100 != 0 || py % 400 == 0) ? 29 : 28) : (pm == 4 || pm == 6 || pm == 9 || pm == 11 ? 30 : 31)
+          end
+          self.yday = self.sheet(pd, pm, (wd + 6) % 7)
+        else
+          self.wds = self.wdn[wd * 3 .. wd * 3 + 2]
+          var dd = (d < 10 ? "0" : "") + str(d)
+          var mm = (mo < 10 ? "0" : "") + str(mo)
+          var yy = (y % 100 < 10 ? "0" : "") + str(y % 100)
+          self.dts = self.dfmt == 0 ? dd + "." + mm + "." + yy : (self.dfmt == 1 ? mm + "/" + dd + "/" + yy : yy + "-" + mm + "-" + dd)
+          self.dx = 51 - self.wid(self.dts, self.sf)
+        end
+      end
       self.wb = []
       self.nb = []
       var i = 0
@@ -604,6 +749,10 @@ class Nimbus
     clear()
     var dk = self.dark
     var f = self.face
+    if !dk
+      # panel first, so the clock drawn afterwards stays on top
+      self.panel(self.cur, 0, 0, 1)
+    end
 
     # time: the big face's at night and on the big face, the flap cards, or double size next to
     # the sheet; the colon steady, blinking or pulsing like the official app

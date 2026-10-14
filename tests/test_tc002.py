@@ -20,13 +20,8 @@ FACES = {
 }
 
 
-# the time and the week bar: x 16-51 next to a sheet, rows 0-9 on the big face
-TIME = {"sheet": (range(16, W), range(16)), "ring": (range(16, W), range(16)), "flap": (range(16, W), range(16)),
-        "big": (range(W), range(10))}
-
-
-class Time(unittest.TestCase):
-    def test_matches_the_official_clock_on_every_face(self):
+class Faces(unittest.TestCase):
+    def test_match_the_official_clock(self):
         sim = need("tc002")
         sim.install()
         for face, cases in FACES.items():
@@ -34,8 +29,7 @@ class Time(unittest.TestCase):
                 cfg = dict(BASE, face=face, **case)
                 sim.config(**cfg)
                 a, b = pair(sim, cfg)
-                xs, ys = TIME[face]
-                self.assertEqual(region(a, W, xs, ys), region(b, W, xs, ys), "%s %s" % (face, case))
+                self.assertEqual(diff(a, b, W), [], "%s %s" % (face, case))
 
 
 class Night(unittest.TestCase):
