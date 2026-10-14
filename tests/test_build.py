@@ -9,9 +9,12 @@ import build as builder  # noqa: E402  (build.py at the repository root)
 
 LAYOUT = {"tc001": ("32x8", 0, 7), "tc002": ("52x16", None, None)}
 CLOCKS = ("tc001", "tc002")
-KEYS = ["t24", "tlz", "tampm", "tsep", "tcol", "tright", "chc", "ctc", "cbc", "wbar", "wmon", "wtd", "wod",
-        "wtw", "wow", "panels", "ddur", "pdur", "tran", "lat", "lon", "wref", "rtopic", "htopic", "rcol",
-        "hcol", "night", "nauto", "nfrom", "nto", "nbar", "npause", "nbri", "ntopic"]
+REST = ["wbar", "wmon", "wtd", "wod", "wtw", "wow", "panels", "ddur", "pdur", "tran", "lat", "lon", "wref", "rtopic",
+        "htopic", "rcol", "hcol", "night", "nauto", "nfrom", "nto", "nbar", "npause", "nbri", "ntopic"]
+WEATHER = REST.index("wref") + 1   # the TC002 adds its weather words after the refresh period
+KEYS = {"tc001": ["t24", "tlz", "tampm", "tsep", "tcol", "tright", "chc", "ctc", "cbc"] + REST,
+        "tc002": ["t24", "tlz", "tsep", "tcol", "face", "chc", "ctc", "cbc", "canim", "dfmt"] + REST[:WEATHER]
+        + ["wlang", "wtext"] + REST[WEATHER:]}
 
 
 def build(*args):
@@ -41,6 +44,8 @@ class Build(unittest.TestCase):
             if fx is not None:
                 self.assertIn("\nvar FX = %d " % fx, text)
                 self.assertIn("\nvar BY = %d " % by, text)
+            else:
+                self.assertNotIn("var FX", text)
 
     def test_check_detects_a_stale_file(self):
         self.assertEqual(build().returncode, 0)
@@ -59,7 +64,10 @@ class Install(unittest.TestCase):
             sim.install()
             self.assertIsNone(sim.error())
             defaults = sim.config_defaults()
-            self.assertEqual(list(defaults), KEYS)
+            self.assertEqual(list(defaults), KEYS[clock])
+            if clock == "tc002":
+                self.assertEqual((defaults["face"], defaults["canim"], defaults["dfmt"], defaults["wlang"], defaults["wtext"]),
+                                 ("sheet", True, "dd.mm.yy", "English", ""))
             self.assertEqual(defaults["tsep"], "pulse")
             self.assertEqual(defaults["tran"], "wipe")
             self.assertEqual(defaults["panels"], "date,temp,weather")

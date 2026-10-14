@@ -5,13 +5,14 @@
 # @display 52x16
 # @config t24 bool "24-hour clock" default=true group="Time"
 # @config tlz bool "Leading zero" default=true group="Time"
-# @config tampm bool "AM/PM indicator" default=false group="Time" help="12-hour clock; shown in night mode, like the official Time app"
 # @config tsep select "Colon" options=steady,blink,pulse default=pulse group="Time"
 # @config tcol color "Time color" default=#FFFFFF group="Time"
-# @config tright bool "Clock on the right" default=true group="Time"
+# @config face select "Clock face" options=sheet,ring,flap,big default=sheet group="Time"
 # @config chc color "Header color" default=#FF0000 group="Calendar"
 # @config ctc color "Text color" default=#000000 group="Calendar"
 # @config cbc color "Body color" default=#FFFFFF group="Calendar"
+# @config canim bool "Calendar animation" default=true group="Calendar" help="The sheet is torn off when Nimbus appears and at midnight"
+# @config dfmt select "Date format" options=dd.mm.yy,mm/dd/yy,yy-mm-dd default=dd.mm.yy group="Calendar" help="Big face"
 # @config wbar bool "Week bar" default=true group="Week bar"
 # @config wmon bool "Week starts Monday" default=true group="Week bar"
 # @config wtd color "Today" default=#FFFFFF group="Week bar"
@@ -25,6 +26,8 @@
 # @config lat number "Latitude" default=48.8566 min=-90 max=90 step=0.0001 group="Weather"
 # @config lon number "Longitude" default=2.3522 min=-180 max=180 step=0.0001 group="Weather"
 # @config wref number "Refresh" default=15 min=5 max=120 unit=min group="Weather"
+# @config wlang select "Condition words" options=English,Español,Français,Português,Deutsch default=English group="Weather" help="Big face"
+# @config wtext text "Your own words" default="" group="Weather" help="Big face. In this order, separated by commas: clear, partly cloudy, cloudy, fog, rain, snow, storm; an empty one keeps the word above"
 # @config rtopic text "Room temperature MQTT topic" default="" group="Room" help="Empty uses the clock's sensor"
 # @config htopic text "Humidity MQTT topic" default="" group="Room" help="Empty uses the clock's sensor"
 # @config rcol color "Room temperature color" default=#FFFFFF group="Room"
@@ -41,19 +44,27 @@
 import math
 import string
 
-# layout: build.py rewrites these two lines for each clock
-var FX = 0 # x of the 32 px content frame
-var BY = 7 # row of the week bar
 
 class Nimbus
   # settings, read once in init()
   var t24, tlz, tampm, tsep, tcol, chc, ctc, cbc, wbar, wmon, wtd, wod, wtw, wow
   var tran, ddur, pdur, rcol, hcol, nauto, nfrom, nto, nbar, npause, nbri
-  # layout in display x: panel on the left (rt), calendar box, icon, "?", panel area, time area, week bar
-  var rt, sx, ix, qx, ax, ta, bx
-  # rebuilt once a minute: minute, hour and minute texts, AM/PM, x of the time by day and at
-  # night, day number and its offset in the box, week bar colors by day and at night
-  var mn, hh, mm, ap, xh, yh, dstr, doff, wb, nb
+  # face (0 sheet, 1 ring, 2 flap, 3 big), tear-off on, date format (0 dd.mm.yy, 1 mm/dd/yy,
+  # 2 yy-mm-dd), flap card colors (the time color at 18 % and 28 %)
+  var face, canim, dfmt, fbg, ffc
+  # fonts as runs (see runs()) by character: small font and chunky; output row -> glyph row of
+  # the double-size time, the big face's time and the flap cards; weekday and month names,
+  # weather conditions and their x on the bottom row
+  var sf, cf, r2, rb, rf, wdn, mon, words, wpx
+  # rebuilt once a minute: minute, time text, rectangles of the big time and of the double-size
+  # time (digits, colon), flap cards (steady rectangles, masks now and a minute ago, turning),
+  # week bar colors by day and at night
+  var mn, tt, bd, bc, sd, sc, ft, fa, fo, ff, wb, nb
+  # rebuilt once a day: day, today's and yesterday's sheet (rows of runs), the bottom row's
+  # weekday, date and its x; tear-off start (nil when none); time of the last frame
+  var dd, today, yday, wds, dts, dx, tear, seen
+  # label font by panel number: 0 chunky, 1 small, 2 bouncing
+  var lk
   # carousel: panel numbers (0 date, 1 temp, 2 weather, 3 room, 4 humidity), index in it,
   # panel shown and previous one, seconds left, start of the transition (nil when none)
   var plist, pi, cur, prev, left, an
@@ -71,7 +82,6 @@ class Nimbus
     # settings: read once, saving them restarts the app
     self.t24 = store.get("t24")
     self.tlz = store.get("tlz")
-    self.tampm = store.get("tampm")
     self.tsep = ["steady", "blink", "pulse"].find(store.get("tsep"))
     self.tcol = store.get("tcol")
     self.chc = store.get("chc")
@@ -95,15 +105,12 @@ class Nimbus
     self.npause = store.get("npause")
     self.nbri = store.get("nbri")
 
-    # layout in the 32 px frame; "Clock on the right" (default) puts the panel on the left
-    var r = store.get("tright")
-    self.rt = r
-    self.sx = FX + (r ? 0 : 23)   # calendar box, 9 px
-    self.ix = FX + (r ? 0 : 24)   # weather icon, 8 px
-    self.qx = FX + (r ? 3 : 26)   # "?" placeholder
-    self.ax = FX + (r ? 0 : 21)   # panel area used by the transitions, 11 px
-    self.ta = FX + (r ? 9 : 0)    # time area, 23 px
-    self.bx = self.ta + 1         # week bar, 20 px centred in the time area
+    self.face = ["sheet", "ring", "flap", "big"].find(store.get("face"))
+    self.canim = store.get("canim")
+    self.dfmt = ["dd.mm.yy", "mm/dd/yy", "yy-mm-dd"].find(store.get("dfmt"))
+    self.fbg = self.scale(self.tcol, 0.18)
+    self.ffc = self.scale(self.tcol, 0.28)
+    self.lk = [0, 0, 0, 0, 0]
     self.mn = -1
     # carousel
     self.plist = []
@@ -201,6 +208,49 @@ class Nimbus
       self.rank.add(g % 100, 1)
       i += 1
     end
+    # fonts of the time, the sheets and the labels as runs: the small font (its digits, "-", "?"
+    # and "%" are the morph font above), its capitals, ":", "." and "/"; chunky digits, "-", ":"
+    self.sf = {}
+    i = 0
+    while i < 13
+      self.sf[glyphs[i]] = self.runs(src[9 + i])
+      i += 1
+    end
+    var caps = ["##/#.#/###/#.#/#.#", "##/#.#/##/#.#/##", ".#/#.#/#/#.#/.#", "##/#.#/#.#/#.#/##",
+                "###/#/###/#/###", "###/#/###/#/#", ".##/#/#.#/#.#/.##", "#.#/#.#/###/#.#/#.#",
+                "#/#/#/#/#", "..#/..#/..#/#.#/.#", "#.#/#.#/##/#.#/#.#", "#/#/#/#/###",
+                "#...#/##.##/#.#.#/#...#/#...#", "#..#/##.#/#.##/#..#/#..#", ".#/#.#/#.#/#.#/.#",
+                "###/#.#/##/#/#", ".#/#.#/#.#/#.#/.###", "###/#.#/##/#.#/#.#", "###/#/###/..#/###",
+                "###/.#/.#/.#/.#", "#.#/#.#/#.#/#.#/###", "#.#/#.#/#.#/#.#/.#",
+                "#...#/#...#/#...#/#.#.#/.#.#", "#.#/#.#/.#/#.#/#.#", "#.#/#.#/###/..#/##",
+                "###/..#/.#/#/###"]
+    i = 0
+    while i < 26
+      self.sf["ABCDEFGHIJKLMNOPQRSTUVWXYZ"[i]] = self.runs(caps[i])
+      i += 1
+    end
+    self.sf[":"] = self.runs("/#//#")
+    self.sf["."] = self.runs("////#")
+    self.sf["/"] = self.runs("..#/..#/.#/#/#")
+    var ck = ["#####/#...#/#...#/#...#/#...#/#...#/#####", "..#/.##/..#/..#/..#/..#/#####",
+              "#####/....#/....#/#####/#/#/#####", "#####/....#/....#/#####/....#/....#/#####",
+              "#...#/#...#/#...#/#####/....#/....#/....#", "#####/#/#/#####/....#/....#/#####",
+              "#####/#/#/#####/#...#/#...#/#####", "#####/....#/....#/....#/....#/....#/....#",
+              "#####/#...#/#...#/#####/#...#/#...#/#####",
+              "#####/#...#/#...#/#####/....#/....#/#####", "///#####", "/##/##//##/##"]
+    self.cf = {}
+    i = 0
+    while i < 12
+      self.cf["0123456789-:"[i]] = self.runs(ck[i])
+      i += 1
+    end
+    # output row -> glyph row: double size, the big face (only the three bars doubled), the flap
+    # cards (255: the dark split row)
+    self.r2 = bytes("00000101020203030404")
+    self.rb = bytes("00000102030304050606")
+    self.rf = bytes("0000010102FF0203030404")
+    self.wdn = "SUNMONTUEWEDTHUFRISAT"
+    self.mon = "JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC"
     # night mode switch: the setting or MQTT, whichever changed last; kept in the store so it
     # survives restarts
     var s = store.get("night")
@@ -295,11 +345,6 @@ class Nimbus
           if v != nil s = str(round(v)) + (p == 4 ? "%" : "") end
           self.ls[p] = s
           if s != nil
-            # temperatures end with a 2 px degree dot, humidity with the font's "%"
-            var w = p == 4 ? text_width(s) - 1 : 4 * size(s) + 2
-            var x = w <= 9 ? (9 - w) / 2 : 0
-            self.lx[p] = FX + (self.rt ? x : 32 - x - w)
-            self.lw[p] = w
             self.lc[p] = c
             self.lf[p] = p == 4 ? s : s + "°"
           end
@@ -409,142 +454,140 @@ class Nimbus
     end
   end
 
-  # one panel at offset (ox, oy) and brightness l; during a morph (self.cut set) every pixel
-  # goes through put() and text uses the copied font
-  def panel(p, ox, oy, l)
-    if p < 0 return end
-    var nat = self.cut == nil
-    var s = nil
-    var c = 0
-    var x = 0
-    var y = oy + 6
-    if p == 0
-      # the official calendar: body, header, then the day number at baseline 7
-      x = self.sx + ox
-      var b = self.cbc
-      var h = self.chc
-      if l < 1
-        b = self.scale(b, l)
-        h = self.scale(h, l)
-      end
-      if nat
-        rect_fill(x, oy, 9, 8, b)
-        rect_fill(x, oy, 9, 2, h)
-      else
-        self.put(x, oy, 9, 8, b)
-        self.put(x, oy, 9, 2, h)
-      end
-      s = self.dstr
-      c = self.ctc
-      x += self.doff
-      y = oy + 7
-    elif p == 2
-      if self.ico == nil
-        s = "?"
-        c = 0x666666
-        x = self.qx + ox
-      else
-        # built-in icon with its animation: rays, star, fog, falling drops or flakes, bolt
-        var t = now_ms()
-        var k = self.ico
-        self.pal[7] = (t / 600) % 2 ? 0xFF7800 : 0xFFC800
-        self.pal[8] = (t / 900) % 2 ? 0x505050 : 0xFFFFFF
-        var bb = self.art[k < 4 ? k : (k == 4 ? 4 + (t / 700) % 2 : (k == 7 ? 7 : 6))]
-        var dy = 0
-        x = self.ix + ox
-        while bb != nil
-          var i = 0
-          while i < size(bb)
-            var cc = self.pal[bb[i + 2]]
-            if l < 1 cc = self.scale(cc, l) end
-            if nat pixel(x + bb[i], oy + dy + bb[i + 1], cc)
-            else self.put(x + bb[i], oy + dy + bb[i + 1], 1, 1, cc) end
-            i += 3
-          end
-          var f = t % 1870
-          if k == 7 && dy == 0 && (f < 90 || (f >= 180 && f < 270))
-            bb = self.art[8]
-            dy = 3
-          else
-            bb = nil
-          end
-        end
-        if k == 5 || k == 6
-          var o = k == 5 ? 0 : 6
-          var f = t / (k == 5 ? 180 : 350)
-          var cc = k == 5 ? 0x2890FF : 0xFFFFFF
-          if l < 1 cc = self.scale(cc, l) end
-          var i = 0
-          while i < 6
-            var px = x + self.fall[o + i]
-            var py = oy + 5 + (f + self.fall[o + i + 1]) % 3
-            if nat pixel(px, py, cc) else self.put(px, py, 1, 1, cc) end
-            i += 2
-          end
+  # an art string ("#" lit, "/" starts the next row) as bytes: its width, then (x, y, length)
+  # of each horizontal run of lit pixels
+  def runs(a)
+    var b = bytes("00")
+    var y = 0
+    for r : string.split(a, "/")
+      var x = 0
+      while x < size(r)
+        if r[x] == "#"
+          var n = 1
+          while x + n < size(r) && r[x + n] == "#" n += 1 end
+          b.add(x, 1)
+          b.add(y, 1)
+          b.add(n, 1)
+          if x + n > b[0] b[0] = x + n end
+          x += n
+        else
+          x += 1
         end
       end
-    else
-      # temperature, room temperature or humidity label
-      s = self.ls[p]
-      if s == nil return end
-      c = self.lc[p]
-      if self.lw[p] > 11
-        # too wide: the firmware bounces it; a morph switches it halfway instead
-        if nat || (self.cut >= 50) == self.mine
-          scroll_text(self.ax + ox, y, 11, self.lf[p], l < 1 ? self.scale(c, l) : c, self.sopt)
-        end
-        return
-      end
-      x = self.lx[p] + ox
-      if p != 4
-        # temperatures: a solid 2x2 degree dot after the digits
-        var cc = l < 1 ? self.scale(c, l) : c
-        var dx = x + 4 * size(s)
-        if nat rect_fill(dx, oy + 1, 2, 2, cc) else self.put(dx, oy + 1, 2, 2, cc) end
-      end
+      y += 1
     end
-    if s != nil
-      if l < 1 c = self.scale(c, l) end
-      if nat
-        text(x, y, s, c)
-      else
-        # copied font: each lit pixel through put()
-        var i = 0
-        while i < size(s)
-          var g = self.font[s[i]]
-          var j = 0
-          while j < size(g)
-            self.put(x + i * 4 + g[j], y - 5 + g[j + 1], 1, 1, c)
-            j += 3
+    return b
+  end
+
+  # ink width of s in font f: the glyphs and 1 px between them
+  def wid(s, f)
+    var w = -1
+    var i = 0
+    while i < size(s)
+      w += f[s[i]][0] + 1
+      i += 1
+    end
+    return w
+  end
+
+  # a time on the official clock's cells, centred in w px from x, top row top: a digit takes the
+  # widest digit's width, the colon its own, every glyph column doubled and the glyph rows
+  # mapped through rows (output row -> glyph row); gap between digits, cg around the colon.
+  # Returns the digits and the colon as rectangles (x, y, w, h) for rects()
+  def cells(s, f, rows, gap, cg, x, w, top)
+    var n = size(s)
+    var dw = f["0"][0] * 2
+    var tw = 0
+    var i = 0
+    while i < n
+      tw += (s[i] == ":" ? f[":"][0] * 2 : dw) + (i + 1 < n ? (s[i] == ":" || s[i + 1] == ":" ? cg : gap) : 0)
+      i += 1
+    end
+    x += (w - tw) / 2
+    var dg = bytes()
+    var co = bytes()
+    i = 0
+    while i < n
+      var ch = s[i]
+      var g = f[ch]
+      var cw = ch == ":" ? g[0] * 2 : dw
+      var gx = x + (cw - g[0] * 2) / 2
+      var b = ch == ":" ? co : dg
+      var j = 1
+      while j < size(g)
+        var r = 0
+        while r < size(rows)
+          if rows[r] == g[j + 1]
+            var r0 = r
+            while r < size(rows) && rows[r] == g[j + 1] r += 1 end
+            b.add(gx + 2 * g[j], 1)
+            b.add(top + r0, 1)
+            b.add(2 * g[j + 2], 1)
+            b.add(r - r0, 1)
+          else
+            r += 1
           end
-          i += 1
         end
+        j += 3
       end
+      x += cw + (i + 1 < n ? (ch == ":" || s[i + 1] == ":" ? cg : gap) : 0)
+      i += 1
+    end
+    return [dg, co]
+  end
+
+  # the rectangles (x, y, w, h) of b, filled with c
+  def rects(b, c)
+    var i = 0
+    while i < size(b)
+      rect_fill(b[i], b[i + 1], b[i + 2], b[i + 3], c)
+      i += 4
+    end
+  end
+
+  # the flap face's cards: the hours at x 17 and the minutes at x 36, split by a dark row 8;
+  # cc: colon color or nil
+  def flap(c, cc)
+    var k = 0
+    while k < 2
+      var x = k == 0 ? 17 : 36
+      rect_fill(x, 0, 16, 8, self.fbg)
+      rect_fill(x, 9, 16, 7, self.fbg)
+      self.rects(self.ft[k], c)
+      k += 1
+    end
+    if cc != nil
+      pixel(34, 5, cc)
+      pixel(34, 11, cc)
     end
   end
 
   def draw()
     if minute() != self.mn
-      # once a minute: the time texts and positions, the day number and the week bar
+      # once a minute: the time cells, the flap cards and the week bar; once a day the sheets
+      # and the bottom row's date
       var h = hour()
       var m = minute()
       self.mn = m
-      var ap = h < 12 ? " AM" : " PM"
       if !self.t24
         h = h % 12
         if h == 0 h = 12 end
       end
-      self.hh = (self.tlz && h < 10 ? "0" : "") + str(h)
-      self.mm = (m < 10 ? "0" : "") + str(m)
-      self.ap = !self.t24 && self.tampm ? ap : nil
-      # width as the firmware counts it: ":" advances 2 px, the last blank column is not part of it
-      var w = text_width(self.hh) + 2 + text_width(self.mm) - 1
-      self.xh = self.ta + (23 - w) / 2           # calendar mode: centred in the time area
-      if self.ap != nil w += text_width(self.ap) end
-      self.yh = FX + (32 - w) / 2                # plain mode (night): centred in the frame
-      var d = day()
-      self.dstr = str(d)
-      self.doff = d < 10 ? 3 : 1
+      var tt = (self.tlz && h < 10 ? "0" : "") + str(h) + ":" + (m < 10 ? "0" : "") + str(m)
+      self.tt = tt
+      var b = self.cells(tt, self.cf, self.rb, 2, 1, 0, 52, 0)
+      self.bd = b[0]
+      self.bc = b[1]
+      var f = self.face
+      if f == 2
+        var c = string.find(tt, ":")
+        self.ft = [self.cells(tt[0 .. c - 1], self.sf, self.rf, 2, 2, 17, 16, 3)[0],
+                   self.cells(tt[c + 1 ..], self.sf, self.rf, 2, 2, 36, 16, 3)[0]]
+      elif f < 2
+        b = self.cells(tt, self.sf, self.r2, 2, 2, 17, 34, self.wbar ? 2 : 3)
+        self.sd = b[0]
+        self.sc = b[1]
+      end
       var wd = weekday()
       self.wb = []
       self.nb = []
@@ -560,78 +603,36 @@ class Nimbus
 
     clear()
     var dk = self.dark
-    if !dk
-      # panel first, so the clock drawn afterwards stays on top; transitions last 500 ms
-      var el = self.an == nil ? 500 : now_ms() - self.an
-      var tr = self.tran
-      if el >= 500 || tr == 7
-        self.an = nil
-        self.panel(self.cur, 0, 0, 1)
-      else
-        var a = self.ax
-        if tr == 0
-          # wipe: black sweeps over the old panel, then uncovers the new one
-          var k = el * 22 / 500
-          if k < 11
-            self.panel(self.prev, 0, 0, 1)
-            if k > 0 rect_fill(a, 0, k, 8, 0) end
-          else
-            self.panel(self.cur, 0, 0, 1)
-            rect_fill(a + k - 11, 0, 22 - k, 8, 0)
-          end
-        elif tr == 1
-          # fade: the old panel to black, then the new one from black
-          self.panel(el < 250 ? self.prev : self.cur, 0, 0, (math.cos(2 * math.pi * el / 500.0) + 1) * 0.5)
-        elif tr == 2
-          # morph: each pixel switches to the new panel at its own random moment
-          self.cut = el / 5
-          self.mine = false
-          self.panel(self.prev, 0, 0, 1)
-          self.mine = true
-          self.panel(self.cur, 0, 0, 1)
-          self.cut = nil
-        else
-          # down/up scroll by 8 px, left/right slide by the panel area's 11 px
-          var v = tr < 5
-          var s = tr == 3 || tr == 6 ? 1 : -1
-          var n = v ? 8 : 11
-          var d = el * n / 500 * s
-          var e = d - n * s
-          self.panel(self.prev, v ? 0 : d, v ? d : 0, 1)
-          self.panel(self.cur, v ? 0 : e, v ? e : 0, 1)
-        end
-        # nothing outside the panel area: blacked out before the clock is drawn
-        if a > 0 rect_fill(0, 0, a, 8, 0) end
-        if a + 11 < width() rect_fill(a + 11, 0, width() - a - 11, 8, 0) end
-        if height() > 8 rect_fill(a, 8, 11, height() - 8, 0) end
-      end
-    end
+    var f = self.face
 
-    # time: hours, colon (steady, blink or pulse, like the official app), minutes; at night the
-    # official plain mode in red, centred in the frame, with AM/PM when enabled
+    # time: the big face's at night and on the big face, the flap cards, or double size next to
+    # the sheet; the colon steady, blinking or pulsing like the official app
     var tc = dk ? 0xFF0000 : self.tcol
-    var x = dk ? self.yh : self.xh
-    x += text(x, 6, self.hh, tc)
     var lv = 1
     if self.tsep == 1
       lv = second() % 2 ? 0 : 1
     elif self.tsep == 2
       lv = 0.5 * (1 - math.cos(2 * math.pi * (epoch_ms() % 2000) / 2000.0))
     end
-    if lv > 0 text(x, 6, ":", lv < 1 ? self.scale(tc, lv) : tc) end
-    x += 2
-    x += text(x, 6, self.mm, tc)
-    if dk && self.ap != nil text(x, 6, self.ap, tc) end
+    var cc = lv <= 0 ? nil : (lv < 1 ? self.scale(tc, lv) : tc)
+    if dk || f == 3
+      self.rects(self.bd, tc)
+      if cc != nil self.rects(self.bc, cc) end
+    elif f == 2
+      self.flap(tc, cc)
+    else
+      self.rects(self.sd, tc)
+      if cc != nil self.rects(self.sc, cc) end
+    end
 
-    # week bar: 2 px segments under the time, 3 px across the frame at night
-    if dk ? self.nbar : self.wbar
-      var sw = dk ? 3 : 2
-      var bx = dk ? FX + 2 : self.bx
+    # week bar: 4 px segments on row 15, under the time next to a sheet, centred at night
+    if dk ? self.nbar : (self.wbar && f < 2)
+      var bx = dk ? 9 : 17
       var cl = dk ? self.nb : self.wb
       var i = 0
       while i < 7
-        line(bx, BY, bx + sw - 1, BY, cl[i])
-        bx += sw + 1
+        rect_fill(bx, 15, 4, 1, cl[i])
+        bx += 5
         i += 1
       end
     end

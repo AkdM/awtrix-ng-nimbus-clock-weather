@@ -8,7 +8,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CLOCKS = {"tc001": {"port": 8080, "fx": 0, "by": 7}, "tc002": {"port": 8081, "fx": 10, "by": 15}}
+CLOCKS = {"tc001": {"port": 8080, "fx": 0, "by": 7}, "tc002": {"port": 8081}}
 SWITCH = 2.5  # seconds to let the device's app transition finish after switching apps
 
 # The firmware's small font as text(x, 6, ...) draws it: rows 1-5, "#" lit, 4 px advance
@@ -31,8 +31,8 @@ class Sim:
     def __init__(self, clock):
         self.clock = clock
         self.base = "http://localhost:%d/api/v1" % CLOCKS[clock]["port"]
-        self.fx = CLOCKS[clock]["fx"]
-        self.by = CLOCKS[clock]["by"]
+        self.fx = CLOCKS[clock].get("fx")   # TC001 only: x of the 32 px frame, row of the week bar
+        self.by = CLOCKS[clock].get("by")
         self.w, self.h = (32, 8) if clock == "tc001" else (52, 16)
 
     def req(self, method, path, body=None, raw=None, timeout=40):
@@ -139,9 +139,38 @@ def official_settings(cfg, mode=1, red=False):
     }
 
 
+# Nimbus's date formats as the official date settings
+DATE_FORMATS = {"dd.mm.yy": ("dayMonthYear", "dot"), "mm/dd/yy": ("monthDayYear", "slash"),
+                "yy-mm-dd": ("yearMonthDay", "dash")}
+
+
+def tc002_settings(cfg, red=False):
+    """Device settings that make the TC002's clock draw what Nimbus should draw for cfg; red=True:
+    the big face with a red time, which Nimbus shows at night on every face."""
+    order, sep = DATE_FORMATS[cfg["dfmt"]]
+    return {
+        "clockFace": "big" if red else cfg["face"], "calendarAnimation": False,
+        "time24h": cfg["t24"], "timeLeadingZero": cfg["tlz"], "timeShowSeconds": False,
+        "timeSeparatorMode": cfg["tsep"], "timeColor": "#FF0000" if red else hexcolor(cfg["tcol"]),
+        "dateColor": hexcolor(cfg["tcol"]), "dateOrder": order, "dateSeparator": sep,
+        "dateYearMode": "twoDigit", "dateMonthNames": False,
+        "calendarHeaderColor": hexcolor(cfg["chc"]), "calendarTextColor": hexcolor(cfg["ctc"]),
+        "calendarBodyColor": hexcolor(cfg["cbc"]),
+        "weekdayBar": {"show": cfg["wbar"], "startOnMonday": cfg["wmon"], "weekendDays": ["saturday", "sunday"],
+                       "activeColor": hexcolor(cfg["wtd"]), "inactiveColor": hexcolor(cfg["wod"]),
+                       "weekendActiveColor": hexcolor(cfg["wtw"]), "weekendInactiveColor": hexcolor(cfg["wow"])},
+    }
+
+
 def pair(sim, cfg, mode=1, red=False):
-    """A Nimbus frame and the official Time app frame for the same configuration and minute."""
-    want = official_settings(cfg, mode, red)
+    """A Nimbus frame and the official clock's frame for the same configuration and minute."""
+    if sim.clock == "tc002":
+        want = tc002_settings(cfg, red)
+        # the flap cards turn in the first 600 ms of a minute: both frames are taken after that
+        while not 2 <= time.localtime().tm_sec <= 50:
+            time.sleep(0.5)
+    else:
+        want = official_settings(cfg, mode, red)
     for _ in range(3):
         m = time.localtime().tm_min
         a = sim.nimbus()
