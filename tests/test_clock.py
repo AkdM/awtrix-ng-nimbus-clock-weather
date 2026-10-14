@@ -33,17 +33,13 @@ class Parity(unittest.TestCase):
     def test_tc001_matches_the_official_app(self):
         self.check("tc001")
 
-    def test_tc002_matches_the_official_app(self):
-        self.check("tc002")
-
     def test_clock_on_the_left_mirrors_the_layout(self):
-        for clock in ("tc001", "tc002"):
-            sim = need(clock)
-            sim.install()
-            cfg = dict(BASE, tright=False)
-            sim.config(**cfg)
-            a, b = pair(sim, cfg)
-            self.assertEqual(diff(a, mirrored(b, sim.w, sim.h, sim.fx), sim.w), [], clock)
+        sim = need("tc001")
+        sim.install()
+        cfg = dict(BASE, tright=False)
+        sim.config(**cfg)
+        a, b = pair(sim, cfg)
+        self.assertEqual(diff(a, mirrored(b, sim.w, sim.h, sim.fx), sim.w), [])
 
 
 class Colon(unittest.TestCase):

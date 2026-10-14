@@ -19,8 +19,9 @@ if [ "$1" = pub ]; then
 fi
 
 case "${2:-tc001}" in
-  tc001) CLOCK=tc001; NAME=awtrix-sim;       PORT=8080; SIZE="--width 32 --height 8";  DATA=awtrix-sim-data ;;
-  tc002) CLOCK=tc002; NAME=awtrix-sim-tc002; PORT=8081; SIZE="--width 52 --height 16"; DATA=awtrix-sim-tc002-data ;;
+  tc001) CLOCK=tc001; NAME=awtrix-sim;       PORT=8080; SIZE="--width 32 --height 8";  DATA=awtrix-sim-data;       ENV= ;;
+  # AWTRIX_SIM_TC002: run the TC002's own clock app (see sim/Dockerfile)
+  tc002) CLOCK=tc002; NAME=awtrix-sim-tc002; PORT=8081; SIZE="--width 52 --height 16"; DATA=awtrix-sim-tc002-data; ENV="-e AWTRIX_SIM_TC002=1" ;;
   *) echo "Unknown clock '$2': use tc001 or tc002" >&2; exit 1 ;;
 esac
 URL="http://localhost:$PORT"
@@ -33,7 +34,7 @@ case "$1" in
   start)
     docker network create "$NET" >/dev/null 2>&1 || true
     docker rm -f "$NAME" >/dev/null 2>&1 || true
-    docker run -d --name "$NAME" --network "$NET" -p "$PORT:8080" -v "$DATA:/data" "$IMAGE" $SIZE >/dev/null
+    docker run -d --name "$NAME" --network "$NET" -p "$PORT:8080" -v "$DATA:/data" $ENV "$IMAGE" $SIZE >/dev/null
     echo "AWTRIX NG $REF simulator ($CLOCK) on $URL"
     ;;
   stop)

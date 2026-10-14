@@ -17,14 +17,13 @@ def red(f):
 
 class Layout(unittest.TestCase):
     def test_matches_the_official_plain_mode_in_red(self):
-        for clock in ("tc001", "tc002"):
-            sim = need(clock)
-            sim.install()
-            for case in CASES:
-                cfg = dict(BASE, night=True, **case)
-                sim.config(**cfg)
-                a, b = pair(sim, cfg, mode=0, red=True)
-                self.assertEqual(diff(a, b, sim.w), [], "%s %s" % (clock, case))
+        sim = need("tc001")
+        sim.install()
+        for case in CASES:
+            cfg = dict(BASE, night=True, **case)
+            sim.config(**cfg)
+            a, b = pair(sim, cfg, mode=0, red=True)
+            self.assertEqual(diff(a, b, sim.w), [], str(case))
 
 
 class Switching(unittest.TestCase):

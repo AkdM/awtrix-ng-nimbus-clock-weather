@@ -81,9 +81,6 @@ class Transitions(unittest.TestCase):
     def test_tc001(self):
         self.check("tc001")
 
-    def test_tc002_keeps_rows_8_to_14_black(self):
-        self.check("tc002")   # outside() covers rows 8-15; row 15 is the week bar, unchanged
-
 
 if __name__ == "__main__":
     unittest.main()

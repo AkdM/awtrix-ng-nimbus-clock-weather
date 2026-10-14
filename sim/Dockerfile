@@ -16,6 +16,11 @@ ARG AWTRIX_REF=v1.2.2
 RUN git clone --depth 1 --branch "$AWTRIX_REF" https://github.com/Blueforcer/awtrix-ng /src
 WORKDIR /src
 RUN pio pkg install -e native
+# Simulator only: with AWTRIX_SIM_TC002 set, the headless build runs the TC002 target (its own
+# clock app with the clock faces, its instruction limit) on the simulated display instead of SPI
+RUN sed -i 's|target_ = o_.boardType == "tc002" ?|target_ = (o_.boardType == "tc002" \|\| std::getenv("AWTRIX_SIM_TC002")) ?|' src/platform/linux/LinuxRuntime.cpp \
+ && sed -i 's|  if (target_->physicalDisplay) {|  if (target_->physicalDisplay \&\& !std::getenv("AWTRIX_SIM_TC002")) {|' src/platform/linux/LinuxRuntime.cpp \
+ && test "$(grep -c AWTRIX_SIM_TC002 src/platform/linux/LinuxRuntime.cpp)" = 2
 # Two jobs: the container VM only has 2 GB of memory
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAWTRIX_WERROR=OFF \
  && cmake --build build --target awtrix-linux --parallel 2
