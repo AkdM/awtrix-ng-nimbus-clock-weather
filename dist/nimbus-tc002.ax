@@ -169,6 +169,23 @@ class Nimbus
                "###/#.#/#.#/#.#/###", ".#/##/.#/.#/###", "###/..#/###/#/###", "###/..#/###/..#/###",
                "#.#/#.#/###/..#/..#", "###/#/###/..#/###", "###/#/###/#.#/###", "###/..#/..#/..#/..#",
                "###/#.#/###/#.#/###", "###/#.#/###/..#/###", "//###", "###/..#/.#//.#", "#.#/..#/.#/#/#.#"]
+    # B and R: the blue and red of the small icons
+    self.pal.push(0x2890FF)
+    self.pal.push(0xFF3030)
+    keys += "BR"
+    # small icons of the big face's bottom row, 5 rows tall (art 9-19): sun, clear night,
+    # partly cloudy, cloudy, fog, rain, snow, thunderstorm, thermometer, house, drop
+src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
+                 ".MMM/MM..S/MM/MM/.MMM",                   # 10 clear night
+                 "....YYY/..LLYYY/.LWWLY/LWWWWL/.LLLL",     # 11 partly cloudy
+                 "..LLL/.LWWWL/LWWWWWL/LWWWWWL/.LLLLL",     # 12 cloudy
+                 "LLLLLL//.GGGGGG//LLLLLL",                 # 13 fog
+                 ".LLL/LWWWL/LLLLL/B.B.B/.B.B",             # 14 rain
+                 ".LLL/LWWWL/LLLLL/W.W.W/.W.W",             # 15 snow
+                 ".GGGG/GDDDDG/GGYYG/..Y/.Y",               # 16 thunderstorm
+                 ".L/.L/.R/RRR/RRR",                        # 17 thermometer
+                 "..O/.OOO/OOOOO/.WWW/.W.W",                # 18 house
+                 "..B/.BBB/BWBBB/BBBBB/.BBB"]               # 19 drop
     self.art = []
     self.font = {}
     var i = 0
@@ -194,7 +211,7 @@ class Nimbus
         end
         j += 1
       end
-      if i < 9 self.art.push(b) else self.font[glyphs[i - 9]] = b end
+      if i < 9 || i >= 22 self.art.push(b) end
       i += 1
     end
     # drops (rain) then flakes (snow): column and phase of three falling pixels
@@ -251,6 +268,27 @@ class Nimbus
     self.rf = bytes("0000010102FF0203030404")
     self.wdn = "SUNMONTUEWEDTHUFRISAT"
     self.mon = "JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC"
+    # the weather's words on the big face, by icon (clear twice: day and night), in the chosen
+    # language, each replaced by the user's own word when there is one; x where each word starts
+    # so that it ends at x 50, below 9 when it is too wide and bounces between x 9 and 50
+    var wl = ["English", "Español", "Français", "Português", "Deutsch"].find(store.get("wlang"))
+    var ws = [["CLEAR", "PARTLY", "CLOUDY", "FOG", "RAIN", "SNOW", "STORM"],
+              ["DESPEJADO", "POCO NUBOSO", "CUBIERTO", "NIEBLA", "LLUVIA", "NIEVE", "TORMENTA"],
+              ["DÉGAGÉ", "ÉCLAIRCIES", "COUVERT", "BROUILLARD", "PLUIE", "NEIGE", "ORAGE"],
+              ["LIMPO", "NUBLADO", "ENCOBERTO", "NEVOEIRO", "CHUVA", "NEVE", "TROVOADA"],
+              ["KLAR", "HEITER", "BEDECKT", "NEBEL", "REGEN", "SCHNEE", "GEWITTER"]][wl == nil ? 0 : wl]
+    var own = string.split(store.get("wtext"), ",")
+    i = 0
+    while i < 7
+      var o = i < size(own) ? own[i] : ""
+      while size(o) > 0 && o[0] == " " o = o[1 ..] end
+      while size(o) > 0 && o[size(o) - 1] == " " o = o[0 .. size(o) - 2] end
+      if size(o) > 0 ws[i] = o end
+      i += 1
+    end
+    self.words = [ws[0], ws[0], ws[1], ws[2], ws[3], ws[4], ws[5], ws[6]]
+    self.wpx = []
+    for w : self.words self.wpx.push(51 - text_ink_width(w)) end
     # night mode switch: the setting or MQTT, whichever changed last; kept in the store so it
     # survives restarts
     var s = store.get("night")
@@ -345,6 +383,7 @@ class Nimbus
           if v != nil s = str(round(v)) + (p == 4 ? "%" : "") end
           self.ls[p] = s
           if s != nil
+            self.lay(p, s)
             self.lc[p] = c
             self.lf[p] = p == 4 ? s : s + "°"
           end
@@ -719,6 +758,74 @@ class Nimbus
     end
   end
 
+  # where the label of panel p sits: right-aligned on the big face's bottom row; centred in the
+  # 16 px column in chunky digits, or in the small font when they do not fit, or bouncing
+  def lay(p, s)
+    var d = p == 4 ? s[0 .. size(s) - 2] : s
+    var u = p == 4 ? 4 : 3      # a 1 px gap, then "%" or the 2 px degree dot
+    var w = self.wid(d, self.sf) + u
+    var k = 1
+    if self.face == 3
+      self.lx[p] = 51 - w
+    else
+      var cw = self.wid(d, self.cf) + u
+      if cw <= 16
+        k = 0
+        w = cw
+      elif w > 16
+        k = 2
+      end
+      self.lx[p] = (16 - w) / 2
+    end
+    self.lk[p] = k
+    self.lw[p] = w
+  end
+
+  # the weather's 8x8 icon at double size from (x, y), with its animation
+  def icon(x, y, l)
+    var t = now_ms()
+    var k = self.ico
+    var bb = self.art[k < 4 ? k : (k == 4 ? 4 + (t / 700) % 2 : (k == 7 ? 7 : 6))]
+    var dy = 0
+    while bb != nil
+      var i = 0
+      while i < size(bb)
+        var c = self.pal[bb[i + 2]]
+        self.box(x + 2 * bb[i], y + 2 * (dy + bb[i + 1]), 2, 2, l < 1 ? self.scale(c, l) : c)
+        i += 3
+      end
+      var f = t % 1870
+      if k == 7 && dy == 0 && (f < 90 || (f >= 180 && f < 270))
+        bb = self.art[8]
+        dy = 3
+      else
+        bb = nil
+      end
+    end
+    if k == 5 || k == 6
+      var o = k == 5 ? 0 : 6
+      var f = t / (k == 5 ? 180 : 350)
+      var c = k == 5 ? 0x2890FF : 0xFFFFFF
+      if l < 1 c = self.scale(c, l) end
+      var i = 0
+      while i < 6
+        self.box(x + 2 * self.fall[o + i], y + 2 * (5 + (f + self.fall[o + i + 1]) % 3), 2, 2, c)
+        i += 2
+      end
+    end
+  end
+
+  # small icon n of the bottom row (0-7 the weather, 8 thermometer, 9 house, 10 drop) from (x, y)
+  def mini(n, x, y, l)
+    var b = self.art[9 + n]
+    var i = 0
+    while i < size(b)
+      var c = self.pal[b[i + 2]]
+      self.box(x + b[i], y + b[i + 1], 1, 1, l < 1 ? self.scale(c, l) : c)
+      i += 3
+    end
+  end
+
   # the big face's bottom row (rows 11-15): the weekday or an icon from x 1, the date or a value
   # ending at x 50
   def row(p, ox, oy, l)
@@ -726,6 +833,26 @@ class Nimbus
     if p == 0
       self.say(ox + 1, y, self.wds, self.sf, l < 1 ? self.scale(self.chc, l) : self.chc)
       self.say(ox + self.dx, y, self.dts, self.sf, l < 1 ? self.scale(self.tcol, l) : self.tcol)
+    elif p == 2
+      if self.ico == nil
+        self.say(ox + 48, y, "?", self.sf, l < 1 ? self.scale(0x666666, l) : 0x666666)
+      else
+        self.mini(self.ico, ox + 1, y, l)
+        # the word, drawn by the firmware for its accents; a morph switches it halfway
+        if self.cut == nil || (self.cut >= 50) == self.mine
+          var w = self.words[self.ico]
+          var c = l < 1 ? self.scale(0xFFFFFF, l) : 0xFFFFFF
+          var x = self.wpx[self.ico]
+          if x < 9 scroll_text(ox + 9, oy + 16, 42, w, c, self.sopt) else text(ox + x, oy + 16, w, c) end
+        end
+      end
+    else
+      var s = self.ls[p]
+      if s == nil return end
+      var c = l < 1 ? self.scale(self.lc[p], l) : self.lc[p]
+      self.mini(p == 1 ? 8 : (p == 3 ? 9 : 10), ox + 1, y, l)
+      var x = self.say(ox + self.lx[p], y, p == 4 ? s[0 .. size(s) - 2] : s, self.sf, c)
+      if p == 4 self.say(x, y, "%", self.sf, c) else self.box(x, y, 2, 2, c) end
     end
   end
 
@@ -758,6 +885,28 @@ class Nimbus
           end
         end
       end
+    elif p == 2
+      if self.ico == nil
+        self.say(ox + 6, oy + 5, "?", self.sf, l < 1 ? self.scale(0x666666, l) : 0x666666)
+      else
+        self.icon(ox, oy, l)
+      end
+    else
+      # temperature, room temperature or humidity, with the degree dot or "%"
+      var s = self.ls[p]
+      if s == nil return end
+      var c = l < 1 ? self.scale(self.lc[p], l) : self.lc[p]
+      var k = self.lk[p]
+      if k == 2
+        # too wide: the firmware bounces it; a morph switches it halfway instead
+        if self.cut == nil || (self.cut >= 50) == self.mine
+          scroll_text(ox, oy + 10, 16, self.lf[p], c, self.sopt)
+        end
+        return
+      end
+      var y = oy + (k == 0 ? 4 : 5)
+      var x = self.say(self.lx[p] + ox, y, p == 4 ? s[0 .. size(s) - 2] : s, k == 0 ? self.cf : self.sf, c)
+      if p == 4 self.say(x, y + (k == 0 ? 2 : 0), "%", self.sf, c) else self.box(x, y, 2, 2, c) end
     end
   end
 
@@ -846,6 +995,8 @@ class Nimbus
     var dk = self.dark
     var f = self.face
     if !dk
+      self.pal[7] = (t / 600) % 2 ? 0xFF7800 : 0xFFC800
+      self.pal[8] = (t / 900) % 2 ? 0x505050 : 0xFFFFFF
       # panel first, so the clock drawn afterwards stays on top
       self.panel(self.cur, 0, 0, 1)
     end

@@ -2,7 +2,7 @@
 import time
 import unittest
 
-from simlib import CHUNKY, FONT, ROOT, diff, glyphs, need, pair, region
+from simlib import CHUNKY, FONT, ROOT, diff, dot, glyphs, need, pair, pub, region
 
 W = 52
 BASE = dict(t24=True, tlz=True, tsep="steady", tcol=0xFFFFFF, face="sheet", chc=0xFF0000, ctc=0x000000,
@@ -18,6 +18,23 @@ FACES = {
     "flap": [{}, {"t24": False, "tlz": False}, COLORS],
     "big": [{}, {"t24": False, "tlz": False}, {"dfmt": "mm/dd/yy"}, {"dfmt": "yy-mm-dd"}, COLORS],
 }
+# small icons of the big face's bottom row (src/nimbus.ax), by name
+ICONS = {"thermometer": ".L/.L/.R/RRR/RRR", "house": "..O/.OOO/OOOOO/.WWW/.W.W", "drop": "..B/.BBB/BWBBB/BBBBB/.BBB"}
+PALETTE = {"O": 0xFF7800, "W": 0xFFFFFF, "L": 0xB4B4B4, "B": 0x2890FF, "R": 0xFF3030}
+
+
+def icon(name, x0, y0):
+    return {(x0 + x, y0 + y): PALETTE[ch] for y, row in enumerate(ICONS[name].split("/"))
+            for x, ch in enumerate(row) if ch in PALETTE}
+
+
+def wait_for(sim, pred, seconds=15):
+    t0 = time.time()
+    while time.time() - t0 < seconds:
+        f = sim.screen()[2]
+        if pred(f):
+            return f
+    raise AssertionError("condition not met within %d s" % seconds)
 
 
 class Faces(unittest.TestCase):
@@ -153,6 +170,111 @@ class Animations(unittest.TestCase):
         self.assertTrue(folding, "no fold")
         self.assertLess(folding[-1] - folding[0], 0.7)
         self.assertTrue(any(0x474747 in c for c in cards), "no moving flap (the time color at 28 %)")
+
+
+class Panels(unittest.TestCase):
+    def setUp(self):
+        self.sim = need("tc002")
+        self.sim.install()
+        pub("nimbus/test/room", "", retain=True)
+        pub("nimbus/test/hum", "", retain=True)
+
+    def shows(self, xs, ys, expected, seconds=8):
+        return wait_for(self.sim, lambda f: region(f, W, xs, ys) == expected, seconds)
+
+    def test_values_in_the_sheet_column(self):
+        self.sim.config(**dict(BASE, panels="room,humidity", rtopic="nimbus/test/room", htopic="nimbus/test/hum",
+                               ddur=1, pdur=1))
+        col = (range(16), range(16))
+        pub("nimbus/test/room", "21.5")
+        # chunky "22" (11 px), 1 px, the 2x2 dot: 14 px from x 1, rows 4-10
+        self.shows(*col, {**glyphs("22", 1, 4, CHUNKY, 0xFFFFFF), **dot(13, 4, 0xFFFFFF)})
+        pub("nimbus/test/hum", "45")
+        # chunky "45", 1 px, the small "%" level with the digits' last five rows: 15 px from x 0
+        self.shows(*col, {**glyphs("45", 0, 4, CHUNKY, 0x00AAFF), **glyphs("%", 12, 6, FONT, 0x00AAFF)})
+        pub("nimbus/test/hum", "100")
+        # chunky "100%" would take 21 px: the small font, 15 px from x 0, rows 5-9
+        self.shows(*col, glyphs("100%", 0, 5, FONT, 0x00AAFF))
+        pub("nimbus/test/room", "-12")
+        # chunky "-12" would take 20 px: the small font, 14 px from x 1
+        self.shows(*col, {**glyphs("-12", 1, 5, FONT, 0xFFFFFF), **dot(13, 5, 0xFFFFFF)})
+
+    def test_a_value_too_wide_for_the_small_font_bounces_in_the_column(self):
+        self.sim.config(**dict(BASE, panels="room", rtopic="nimbus/test/room"))
+        pub("nimbus/test/room", "12345")
+        wait_for(self.sim, lambda f: f[0] != BASE["chc"] and region(f, W, range(16), range(16)))
+        for _, f in self.sim.frames(3):
+            px = region(f, W, range(17), range(16))
+            self.assertTrue(px and max(x for x, _ in px) <= 15, sorted(px))
+
+    def test_weather_icon_at_double_size(self):
+        self.sim.config(**dict(BASE, panels="weather"))
+        f = wait_for(self.sim, lambda f: region(f, W, range(16), range(16)) and
+                     0x666666 not in region(f, W, range(16), range(16)).values())
+        for (x, y), c in region(f, W, range(16), range(16)).items():
+            self.assertEqual(f[(y & ~1) * W + (x & ~1)], c, "not a 2x2 square at %d,%d" % (x, y))
+
+    def test_bottom_row_of_the_big_face(self):
+        self.sim.config(**dict(BASE, face="big", panels="room,humidity", rtopic="nimbus/test/room",
+                               htopic="nimbus/test/hum", ddur=1, pdur=1))
+        row = (range(W), range(10, 16))
+        pub("nimbus/test/room", "21.5")
+        # the house from x 1, "22" and the dot ending at x 50, rows 11-15
+        self.shows(*row, {**icon("house", 1, 11), **glyphs("22", 41, 11, FONT, 0xFFFFFF), **dot(49, 11, 0xFFFFFF)})
+        pub("nimbus/test/hum", "45")
+        self.shows(*row, {**icon("drop", 1, 11), **glyphs("45%", 40, 11, FONT, 0x00AAFF)})
+
+    def test_weather_condition_on_the_bottom_row(self):
+        self.sim.config(**dict(BASE, face="big", panels="weather"))
+        words = ["CLEAR", "PARTLY", "CLOUDY", "FOG", "RAIN", "SNOW", "STORM"]
+        right = {w: glyphs(w, 51 - (sum(len(FONT[c][0]) + 1 for c in w) - 1), 11, FONT, 0xFFFFFF) for w in words}
+        f = wait_for(self.sim, lambda f: region(f, W, range(12, W), range(10, 16)) in right.values())
+        self.assertTrue(region(f, W, range(0, 9), range(11, 16)), "no icon")
+
+    def test_condition_words_in_each_language_and_your_own(self):
+        real = (ROOT / "dist" / "nimbus-tc002.ax").read_text()
+        demo = real.replace("    self.ico = n\n", "    self.ico = 5\n", 1)   # rain, whatever the weather
+        self.assertNotEqual(demo, real)
+        self.sim.install(demo)
+        word = (range(9, W), range(10, 16))
+
+        def ends(f, x0):
+            px = region(f, W, *word)
+            return bool(px) and min(x for x, _ in px) == x0 and max(x for x, _ in px) == 50
+        # each language's word for rain (ink widths measured in the firmware's font), ending at x 50
+        for lang, width in (("English", 14), ("Español", 21), ("Français", 17), ("Português", 19), ("Deutsch", 20)):
+            self.sim.config(**dict(BASE, face="big", panels="weather", wlang=lang))
+            f = wait_for(self.sim, lambda f: ends(f, 51 - width))
+            self.assertEqual(set(region(f, W, *word).values()), {0xFFFFFF}, lang)
+        # your own word for rain, the fifth; spaces around it are dropped, empty entries keep the language's
+        self.sim.config(**dict(BASE, face="big", panels="weather", wlang="Français", wtext="SEC, , ,, WET "))
+        self.shows(*word, glyphs("WET", 51 - (sum(len(FONT[c][0]) + 1 for c in "WET") - 1), 11, FONT, 0xFFFFFF))
+        self.sim.config(**dict(BASE, face="big", panels="weather", wlang="Français", wtext="SEC"))
+        wait_for(self.sim, lambda f: ends(f, 51 - 17))                       # PLUIE
+        # too wide for x 9-50: it bounces there, next to the icon
+        self.sim.config(**dict(BASE, face="big", panels="weather", wtext=",,,,HEAVY RAIN ALL DAY"))
+        wait_for(self.sim, lambda f: region(f, W, *word) and not ends(f, 51 - 14))
+        frames = [f for _, f in self.sim.frames(3)]
+        for f in frames:
+            px = region(f, W, range(8, W), range(10, 16))
+            self.assertTrue(px and min(x for x, _ in px) >= 9 and max(x for x, _ in px) <= 50, sorted(px)[:3])
+        self.assertGreater(len({tuple(sorted(region(f, W, *word))) for f in frames}), 1, "the word does not move")
+
+    def test_placeholders_without_weather(self):
+        real = (ROOT / "dist" / "nimbus-tc002.ax").read_text()
+        demo = real.replace("http://api.open-meteo.com/v1/forecast", "http://127.0.0.1:9/v1/forecast", 1)
+        self.assertNotEqual(demo, real)
+        self.sim.install(demo)
+        grey = 0x666666
+        self.sim.config(**dict(BASE, panels="temp"))
+        self.shows(range(16), range(16), {**glyphs("--", 1, 4, CHUNKY, grey), **dot(13, 4, grey)})
+        self.sim.config(**dict(BASE, panels="weather"))
+        self.shows(range(16), range(16), glyphs("?", 6, 5, FONT, grey))
+        self.sim.config(**dict(BASE, face="big", panels="temp"))
+        self.shows(range(W), range(10, 16), {**icon("thermometer", 1, 11), **glyphs("--", 41, 11, FONT, grey),
+                                             **dot(49, 11, grey)})
+        self.sim.config(**dict(BASE, face="big", panels="weather"))
+        self.shows(range(W), range(10, 16), glyphs("?", 48, 11, FONT, grey))
 
 
 if __name__ == "__main__":
