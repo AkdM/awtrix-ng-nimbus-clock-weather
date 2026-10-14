@@ -42,8 +42,8 @@ import math
 import string
 
 # layout: build.py rewrites these two lines for each clock
-var FX = 10 # x of the 32 px content frame
-var BY = 15 # row of the week bar
+var FX = 0 # x of the 32 px content frame
+var BY = 7 # row of the week bar
 
 class Nimbus
   # settings, read once in init()

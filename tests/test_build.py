@@ -4,7 +4,11 @@ import unittest
 
 from simlib import ROOT, need
 
-LAYOUT = {"tc001": ("32x8", 0, 7), "tc002": ("52x16", 10, 15)}
+sys.path.insert(0, str(ROOT))
+import build as builder  # noqa: E402  (build.py at the repository root)
+
+LAYOUT = {"tc001": ("32x8", 0, 7), "tc002": ("52x16", None, None)}
+CLOCKS = ("tc001", "tc002")
 KEYS = ["t24", "tlz", "tampm", "tsep", "tcol", "tright", "chc", "ctc", "cbc", "wbar", "wmon", "wtd", "wod",
         "wtw", "wow", "panels", "ddur", "pdur", "tran", "lat", "lon", "wref", "rtopic", "htopic", "rcol",
         "hcol", "night", "nauto", "nfrom", "nto", "nbar", "npause", "nbri", "ntopic"]
@@ -14,14 +18,29 @@ def build(*args):
     return subprocess.run([sys.executable, str(ROOT / "build.py"), *args], capture_output=True, text=True)
 
 
+class Blocks(unittest.TestCase):
+    SRC = "# @display 32x8\na\n# @if tc001\nb\n# @end\n  # @if tc002\n  c\n  # @end\nd\n"
+
+    def test_each_clock_keeps_its_own_blocks_without_the_markers(self):
+        self.assertEqual(builder.render(self.SRC, "tc001", {"display": "32x8"}, CLOCKS), "# @display 32x8\na\nb\nd\n")
+        self.assertEqual(builder.render(self.SRC, "tc002", {"display": "52x16"}, CLOCKS), "# @display 52x16\na\n  c\nd\n")
+
+    def test_unbalanced_or_unknown_blocks_stop_the_build(self):
+        for bad in ("# @if tc001\n", "# @end\n", "# @if tc001\n# @if tc002\n# @end\n# @end\n", "# @if tc003\n# @end\n"):
+            with self.assertRaises(SystemExit, msg=bad):
+                builder.render("# @display 32x8\n" + bad, "tc001", {"display": "32x8"}, CLOCKS)
+
+
 class Build(unittest.TestCase):
     def test_writes_one_file_per_clock(self):
         self.assertEqual(build().returncode, 0)
         for clock, (display, fx, by) in LAYOUT.items():
             text = (ROOT / "dist" / ("nimbus-%s.ax" % clock)).read_text()
             self.assertIn("# @display %s\n" % display, text)
-            self.assertIn("\nvar FX = %d " % fx, text)
-            self.assertIn("\nvar BY = %d " % by, text)
+            self.assertNotRegex(text, r"(?m)^\s*# @(if|end)\b")
+            if fx is not None:
+                self.assertIn("\nvar FX = %d " % fx, text)
+                self.assertIn("\nvar BY = %d " % by, text)
 
     def test_check_detects_a_stale_file(self):
         self.assertEqual(build().returncode, 0)
