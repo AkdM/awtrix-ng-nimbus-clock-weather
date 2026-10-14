@@ -80,6 +80,11 @@ def sheet_px(day, label, chc, cbc, ctc):
     return {p: c for p, c in g.items() if c}
 
 
+def lowest_header(f):
+    """The lowest row with the header color in the sheet's 15 columns: below 6 while a sheet falls."""
+    return max([y for y in range(16) for x in range(15) if f[y * W + x] == BASE["chc"]], default=-1)
+
+
 class Animations(unittest.TestCase):
     def test_sheet_tears_off_when_nimbus_appears(self):
         sim = need("tc002")
@@ -94,14 +99,25 @@ class Animations(unittest.TestCase):
         finally:
             sim.settings(transitionDurationMs=1000)
 
-        def lowest_header(f):
-            return max([y for y in range(16) for x in range(15) if f[y * W + x] == BASE["chc"]], default=-1)
         # yesterday's sheet falls: its header (rows 0-6) goes below row 6, for at most 1.1 s
         falling = [t for t, f in frames if lowest_header(f) > 6]
         self.assertTrue(falling, "the sheet did not fall")
         self.assertLess(falling[-1] - falling[0], 1.2)
         sheet = [tuple(f[y * W + x] for y in range(16) for x in range(16)) for t, f in frames if t > falling[-1]]
         self.assertTrue(sheet and len(set(sheet)) == 1, "the sheet did not settle")
+
+    def test_sheet_falls_once_the_app_transition_is_over(self):
+        # the device's default transition takes 1 s; the sheet falls after it, like the official clock's
+        sim = need("tc002")
+        sim.install()
+        sim.settings(transitionDurationMs=1000)
+        sim.config(**dict(BASE, canim=True))
+        sim.only("Time")
+        sim.req("PUT", "/apps/order", {"order": ["Nimbus"], "disabled": ["Time", "Status"]})
+        sim.req("PUT", "/apps/active", {"name": "Nimbus"})
+        frames = sim.frames(3)
+        falling = [t for t, f in frames if t > 1.2 and lowest_header(f) > 6]
+        self.assertTrue(falling and falling[-1] > 1.6, "the sheet does not fall after the transition: %s" % falling[-1:])
 
     def test_sheet_tears_off_at_midnight(self):
         sim = need("tc002")
@@ -123,8 +139,6 @@ class Animations(unittest.TestCase):
         finally:
             sim.req("PUT", "/system", {"tz": system["tz"], "tzName": system["tzName"]})
 
-        def lowest_header(f):
-            return max([y for y in range(16) for x in range(15) if f[y * W + x] == BASE["chc"]], default=-1)
         falling = [t for t, f in frames if t > 3 and lowest_header(f) > 6]
         self.assertTrue(falling, "no tear-off at midnight")
         self.assertTrue(4 < falling[0] < 8, falling[0])
@@ -170,6 +184,32 @@ class Animations(unittest.TestCase):
         self.assertTrue(folding, "no fold")
         self.assertLess(folding[-1] - folding[0], 0.7)
         self.assertTrue(any(0x474747 in c for c in cards), "no moving flap (the time color at 28 %)")
+
+
+class Boot(unittest.TestCase):
+    def test_dashes_until_the_time_is_known(self):
+        # right after a boot without network every time call answers -1 (now_ms() excepted): a copy
+        # whose time calls always do
+        sim = need("tc002")
+        real = (ROOT / "dist" / "nimbus-tc002.ax").read_text()
+        calls = "".join("def %s() return -1 end\n" % c
+                        for c in ("hour", "minute", "second", "day", "month", "year", "weekday", "epoch_ms"))
+        demo = real.replace("import string\n", "import string\n" + calls, 1)
+        self.assertNotEqual(demo, real)
+        sim.install(demo)
+        try:
+            for face in ("sheet", "flap", "big"):
+                sim.config(**dict(BASE, face=face, panels="date,temp", ddur=1, pdur=1))
+                sim.only("Nimbus")
+                self.assertIsNone(sim.error(), face)
+                f = sim.screen()[2]
+                # the dashes of the face's time, nothing in the panel area (the bottom row on the big face)
+                area = (range(W), range(10, 16)) if face == "big" else (range(16), range(16))
+                self.assertEqual(region(f, W, *area), {}, face)
+                lit = set(region(f, W, range(W), range(16)).values())
+                self.assertTrue(lit and lit <= {0xFFFFFF, 0x2E2E2E}, "%s: %s" % (face, sorted(lit)))
+        finally:
+            sim.install()
 
 
 class Panels(unittest.TestCase):
@@ -233,8 +273,10 @@ class Panels(unittest.TestCase):
 
     def test_condition_words_in_each_language_and_your_own(self):
         real = (ROOT / "dist" / "nimbus-tc002.ax").read_text()
-        demo = real.replace("    self.ico = n\n", "    self.ico = 5\n", 1)   # rain, whatever the weather
-        self.assertNotEqual(demo, real)
+        # rain from the start, whatever the weather and even when its answer is late
+        demo = real.replace("    self.ico = n\n", "    self.ico = 5\n", 1)
+        demo = demo.replace("    self.lk = [0, 0, 0, 0, 0]\n", "    self.lk = [0, 0, 0, 0, 0]\n    self.ico = 5\n", 1)
+        self.assertEqual(demo.count("self.ico = 5"), 2)
         self.sim.install(demo)
         word = (range(9, W), range(10, 16))
 

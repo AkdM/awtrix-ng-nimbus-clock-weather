@@ -90,6 +90,8 @@ class Nimbus
   var dd, today, yday, wds, dts, dx, tear, seen
   # label font by panel number: 0 chunky, 1 small, 2 bouncing
   var lk
+  # until the time is known: [layout (the face, 3 at night), its dashes as rectangles]
+  var nt
   # @end
   # carousel: panel numbers (0 date, 1 temp, 2 weather, 3 room, 4 humidity), index in it,
   # panel shown and previous one, seconds left, start of the transition (nil when none)
@@ -794,9 +796,12 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
   end
   # @end
   # @if tc002
-  # the official clock tears its sheet off each time it appears
+  # the official clock tears its sheet off each time it appears, once the app transition is over
   def on_show()
-    if self.canim && self.face < 3 && self.cur == 0 && !self.dark self.tear = now_ms() end
+    if self.canim && self.face < 3 && self.cur == 0 && !self.dark
+      var d = settings.get("transitionDurationMs")
+      self.tear = now_ms() + (d == nil ? 0 : d)
+    end
   end
 
   # an art string ("#" lit, "/" starts the next row) as bytes: its width, then (x, y, length)
@@ -1175,6 +1180,7 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
         if e >= 1100
           self.tear = nil
         else
+          if e < 0 e = 0 end     # the app is still coming in: yesterday's sheet, whole
           var q = e / 1100.0
           var dy = int(17 * q * q + 0.5)
           var ln = int(3 * q * q + 0.5)
@@ -1213,6 +1219,32 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
 
   def draw()
     var t = now_ms()
+    if minute() < 0
+      # the time is not known yet (a boot without network): dashes in the face's time layout,
+      # like the official clock, and no panel until it is
+      clear()
+      var f = self.dark ? 3 : self.face
+      var c = self.dark ? 0xFF0000 : self.tcol
+      if self.nt == nil || self.nt[0] != f
+        if f == 2
+          self.nt = [f, [self.cells("--", self.sf, self.rf, 2, 2, 17, 16, 3)[0],
+                         self.cells("--", self.sf, self.rf, 2, 2, 36, 16, 3)[0]]]
+        else
+          self.nt = [f, f == 3 ? self.cells("--:--", self.cf, self.rb, 2, 1, 0, 52, 0)
+                               : self.cells("--:--", self.sf, self.r2, 2, 2, 17, 34, self.wbar ? 2 : 3)]
+        end
+      end
+      if f == 2
+        # the flap cards, still: the minute rebuild replaces them once the time is known
+        self.ft = self.nt[1]
+        self.ff = [false, false]
+        self.flap(c, c)
+      else
+        self.rects(self.nt[1][0], c)
+        self.rects(self.nt[1][1], c)
+      end
+      return
+    end
     if minute() != self.mn
       # once a minute: the time cells, the flap cards and the week bar; once a day the sheets
       # and the bottom row's date
