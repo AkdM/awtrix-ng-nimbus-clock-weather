@@ -19,7 +19,32 @@ FONT = {
     "6": ["###", "#..", "###", "#.#", "###"], "7": ["###", "..#", "..#", "..#", "..#"],
     "8": ["###", "#.#", "###", "#.#", "###"], "9": ["###", "#.#", "###", "..#", "###"],
     "-": ["...", "...", "###", "...", "..."], "%": ["#.#", "..#", ".#.", "#..", "#.#"],
-    "?": ["###", "..#", ".#.", "...", ".#."],
+    "?": ["###", "..#", ".#.", "...", ".#."], ":": [".", "#", ".", "#", "."], ".": [".", ".", ".", ".", "#"],
+    "/": ["..#", "..#", ".#.", "#..", "#.."],
+}
+# its capitals: one art string per letter ("#" lit, "/" next row), widths from 1 to 5
+CAPS = ("##/#.#/###/#.#/#.#", "##/#.#/##/#.#/##", ".#/#.#/#/#.#/.#", "##/#.#/#.#/#.#/##", "###/#/###/#/###",
+        "###/#/###/#/#", ".##/#/#.#/#.#/.##", "#.#/#.#/###/#.#/#.#", "#/#/#/#/#", "..#/..#/..#/#.#/.#",
+        "#.#/#.#/##/#.#/#.#", "#/#/#/#/###", "#...#/##.##/#.#.#/#...#/#...#", "#..#/##.#/#.##/#..#/#..#",
+        ".#/#.#/#.#/#.#/.#", "###/#.#/##/#/#", ".#/#.#/#.#/#.#/.###", "###/#.#/##/#.#/#.#", "###/#/###/..#/###",
+        "###/.#/.#/.#/.#", "#.#/#.#/#.#/#.#/###", "#.#/#.#/#.#/#.#/.#", "#...#/#...#/#...#/#.#.#/.#.#",
+        "#.#/#.#/.#/#.#/#.#", "#.#/#.#/###/..#/##", "###/..#/.#/#/###")
+for _i, _art in enumerate(CAPS):
+    _rows = _art.split("/")
+    FONT[chr(65 + _i)] = [r.ljust(max(map(len, _rows)), ".") for r in _rows]
+# matrix-chunky8x6, the TC002's big digits: 7 rows, 5 px wide
+CHUNKY = {
+    "0": ["#####", "#...#", "#...#", "#...#", "#...#", "#...#", "#####"],
+    "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", "#####"],
+    "2": ["#####", "....#", "....#", "#####", "#....", "#....", "#####"],
+    "3": ["#####", "....#", "....#", "#####", "....#", "....#", "#####"],
+    "4": ["#...#", "#...#", "#...#", "#####", "....#", "....#", "....#"],
+    "5": ["#####", "#....", "#....", "#####", "....#", "....#", "#####"],
+    "6": ["#####", "#....", "#....", "#####", "#...#", "#...#", "#####"],
+    "7": ["#####", "....#", "....#", "....#", "....#", "....#", "....#"],
+    "8": ["#####", "#...#", "#...#", "#####", "#...#", "#...#", "#####"],
+    "9": ["#####", "#...#", "#...#", "#####", "....#", "....#", "#####"],
+    "-": [".....", ".....", ".....", "#####", ".....", ".....", "....."],
 }
 
 
@@ -50,15 +75,16 @@ class Sim:
         except Exception:
             return False
 
-    def install(self):
+    def install(self, text=None):
         # a fresh app for every test: deleting it also clears its store, where Nimbus keeps
-        # state across restarts (night mode switch, saved brightness)
+        # state across restarts (night mode switch, saved brightness); text: a modified copy
         try:
             self.req("DELETE", "/apps/Nimbus")
         except urllib.error.HTTPError as e:
             if e.code != 404:
                 raise
-        res = self.req("PUT", "/apps/script/Nimbus", raw=(ROOT / "dist" / ("nimbus-%s.ax" % self.clock)).read_bytes())
+        raw = text.encode() if text is not None else (ROOT / "dist" / ("nimbus-%s.ax" % self.clock)).read_bytes()
+        res = self.req("PUT", "/apps/script/Nimbus", raw=raw)
         assert res.get("error") is None, res
         self.only("Nimbus")
         return res
@@ -215,3 +241,22 @@ def label(s, x0, color, dot=True):
 def region(frame, w, xs, ys):
     """{(x, y): color} of the lit pixels of frame inside the x and y ranges."""
     return {(x, y): frame[y * w + x] for y in ys for x in xs if frame[y * w + x]}
+
+
+def glyphs(s, x0, y0, font, color):
+    """{(x, y): color} of s drawn from a glyph table (FONT or CHUNKY) with its ink from (x0, y0):
+    each glyph, then 1 px."""
+    px, x = {}, x0
+    for ch in s:
+        rows = font[ch]
+        for r, row in enumerate(rows):
+            for c, v in enumerate(row):
+                if v == "#":
+                    px[(x + c, y0 + r)] = color
+        x += len(rows[0]) + 1
+    return px
+
+
+def dot(x, y, color):
+    """The 2x2 degree dot."""
+    return {(x, y): color, (x + 1, y): color, (x, y + 1): color, (x + 1, y + 1): color}

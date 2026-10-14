@@ -454,6 +454,11 @@ class Nimbus
     end
   end
 
+  # the official clock tears its sheet off each time it appears
+  def on_show()
+    if self.canim && self.face < 3 && self.cur == 0 && !self.dark self.tear = now_ms() end
+  end
+
   # an art string ("#" lit, "/" starts the next row) as bytes: its width, then (x, y, length)
   # of each horizontal run of lit pixels
   def runs(a)
@@ -566,15 +571,73 @@ class Nimbus
     end
   end
 
-  # the flap face's cards: the hours at x 17 and the minutes at x 36, split by a dark row 8;
-  # cc: colon color or nil
+  # a pair of flap digits at plain double size, centred in 16 px: 10 rows of 16-bit masks
+  def mask(s)
+    var m = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var b = self.cells(s, self.sf, self.r2, 2, 2, 0, 16, 0)[0]
+    var i = 0
+    while i < size(b)
+      var j = 0
+      while j < b[i + 3]
+        m[b[i + 1] + j] = m[b[i + 1] + j] | (((1 << b[i + 2]) - 1) << b[i])
+        j += 1
+      end
+      i += 4
+    end
+    return m
+  end
+
+  # one 16 px row of a flap card: the bits of m in c, the others in bg (nil: left as they are)
+  def bits(x, y, m, c, bg)
+    if bg != nil rect_fill(x, y, 16, 1, bg) end
+    while m
+      if m & 1 pixel(x, y, c) end
+      m = m >> 1
+      x += 1
+    end
+  end
+
+  # the flap face's cards; at a new minute the changed ones fold over in 600 ms: the old upper
+  # half shrinks onto the split, then the new lower half grows from it. cc: colon color or nil
   def flap(c, cc)
+    var e = epoch_ms() % 60000
+    var p = e < 600 ? e / 600.0 : 1.0
     var k = 0
     while k < 2
       var x = k == 0 ? 17 : 36
       rect_fill(x, 0, 16, 8, self.fbg)
       rect_fill(x, 9, 16, 7, self.fbg)
-      self.rects(self.ft[k], c)
+      if p >= 1 || !self.ff[k]
+        self.rects(self.ft[k], c)
+      else
+        var a = self.fa[k]
+        var b = self.fo[k]
+        var j = 0
+        while j < 5
+          self.bits(x, 3 + j, a[j], c, nil)
+          self.bits(x, 9 + j, b[5 + j], c, nil)
+          j += 1
+        end
+        if p < 0.5
+          var h = int(8 * (1 - p / 0.5) + 0.5)
+          if h < 1 h = 1 end
+          j = 0
+          while j < h
+            var s = j * 8 / h - 3
+            self.bits(x, 8 - h + j, s >= 0 && s < 5 ? b[s] : 0, c, self.ffc)
+            j += 1
+          end
+        else
+          var h = int(7 * (p - 0.5) / 0.5 + 0.5)
+          if h < 1 h = 1 end
+          j = 0
+          while j < h
+            var s = j * 7 / h
+            self.bits(x, 9 + j, s < 5 ? a[5 + s] : 0, c, self.ffc)
+            j += 1
+          end
+        end
+      end
       k += 1
     end
     if cc != nil
@@ -672,17 +735,34 @@ class Nimbus
     if p < 0 return end
     if self.face == 3 return self.row(p, ox, oy, l) end
     if p == 0
-      # the face's sheet
+      # the face's sheet; while a tear-off runs, yesterday's falls away over it
       var rs = self.today
       var y = 0
       while y < 16
         self.srow(rs[y], ox, oy + y, l)
         y += 1
       end
+      if self.tear != nil
+        var e = now_ms() - self.tear
+        if e >= 1100
+          self.tear = nil
+        else
+          var q = e / 1100.0
+          var dy = int(17 * q * q + 0.5)
+          var ln = int(3 * q * q + 0.5)
+          rs = self.yday
+          y = 15
+          while y >= (self.face == 1 ? 3 : 0)
+            if y + dy <= 15 self.srow(rs[y], ox + (y + dy > 8 ? ln : 0), oy + y + dy, l) end
+            y -= 1
+          end
+        end
+      end
     end
   end
 
   def draw()
+    var t = now_ms()
     if minute() != self.mn
       # once a minute: the time cells, the flap cards and the week bar; once a day the sheets
       # and the bottom row's date
@@ -694,6 +774,8 @@ class Nimbus
         if h == 0 h = 12 end
       end
       var tt = (self.tlz && h < 10 ? "0" : "") + str(h) + ":" + (m < 10 ? "0" : "") + str(m)
+      # the flap cards turn from the minute shown before when Nimbus was on screen at the change
+      var old = self.seen != nil && t - self.seen < 1000 ? self.tt : tt
       self.tt = tt
       var b = self.cells(tt, self.cf, self.rb, 2, 1, 0, 52, 0)
       self.bd = b[0]
@@ -701,8 +783,21 @@ class Nimbus
       var f = self.face
       if f == 2
         var c = string.find(tt, ":")
-        self.ft = [self.cells(tt[0 .. c - 1], self.sf, self.rf, 2, 2, 17, 16, 3)[0],
-                   self.cells(tt[c + 1 ..], self.sf, self.rf, 2, 2, 36, 16, 3)[0]]
+        var o = string.find(old, ":")
+        self.ft = []
+        self.fa = []
+        self.fo = []
+        self.ff = []
+        var k = 0
+        while k < 2
+          var a = k == 0 ? tt[0 .. c - 1] : tt[c + 1 ..]
+          var z = k == 0 ? old[0 .. o - 1] : old[o + 1 ..]
+          self.ft.push(self.cells(a, self.sf, self.rf, 2, 2, k == 0 ? 17 : 36, 16, 3)[0])
+          self.fa.push(self.mask(a))
+          self.fo.push(self.mask(z))
+          self.ff.push(a != z)
+          k += 1
+        end
       elif f < 2
         b = self.cells(tt, self.sf, self.r2, 2, 2, 17, 34, self.wbar ? 2 : 3)
         self.sd = b[0]
@@ -711,7 +806,8 @@ class Nimbus
       var d = day()
       var wd = weekday()
       if d != self.dd
-        # a new day
+        # a new day; the sheet is torn off when it is on screen
+        if self.dd != nil && self.canim && f < 3 && self.cur == 0 && !self.dark self.tear = t end
         self.dd = d
         var mo = month()
         var y = year()
@@ -785,6 +881,7 @@ class Nimbus
         i += 1
       end
     end
+    self.seen = t
   end
 end
 
