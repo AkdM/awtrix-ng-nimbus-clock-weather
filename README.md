@@ -128,7 +128,7 @@ The icons live in `src/nimbus.ax` as pixel-art strings (see `init()`): one palet
 
 ## Development
 
-`src/nimbus.ax` is the source: lines between `# @if tc001` (or `tc002`) and `# @end` go only into that clock's file. `python3 build.py` writes the scripts in `dist/` (commit them with the source; `python3 build.py --check` fails when they are out of date).
+`src/nimbus.ax` is the source: lines between `# @if tc001` (or `tc002`) and `# @end` go only into that clock's file. `python3 build.py` writes the scripts in `dist/`, without comments and blank lines to keep them light on the clock (commit them with the source; `python3 build.py --check` fails when they are out of date).
 
 The tests drive two AWTRIX NG simulators, the firmware's own Linux build in containers:
 

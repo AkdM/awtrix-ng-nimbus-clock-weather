@@ -34,6 +34,19 @@ class Blocks(unittest.TestCase):
                 builder.render("# @display 32x8\n" + bad, "tc001", {"display": "32x8"}, CLOCKS)
 
 
+class Strip(unittest.TestCase):
+    def test_comments_and_blank_lines_go_strings_stay(self):
+        src = ('# @name X\n# @config c color "C" default=#FFFFFF group="G"\n\n# a comment\n'
+               'var a = "#1"  # trailing\n  var b = \'x#y\' # trailing\n    # indented comment\n\n'
+               'var d = "a\\"#b" # c\nvar e = 1\n')
+        self.assertEqual(builder.strip(src), '# @name X\n# @config c color "C" default=#FFFFFF group="G"\n'
+                                             'var a = "#1"\n  var b = \'x#y\'\nvar d = "a\\"#b"\nvar e = 1\n')
+
+    def test_block_comments_stop_the_build(self):
+        with self.assertRaises(SystemExit):
+            builder.strip("var a = 1 #- a block -#\n")
+
+
 class Build(unittest.TestCase):
     def test_writes_one_file_per_clock(self):
         self.assertEqual(build().returncode, 0)
@@ -41,9 +54,13 @@ class Build(unittest.TestCase):
             text = (ROOT / "dist" / ("nimbus-%s.ax" % clock)).read_text()
             self.assertIn("# @display %s\n" % display, text)
             self.assertNotRegex(text, r"(?m)^\s*# @(if|end)\b")
+            # no blank lines, no comments: only the header's "# @" lines start with "#"
+            for line in text.split("\n")[:-1]:
+                self.assertTrue(line.strip(), "blank line in %s" % clock)
+                self.assertFalse(line.lstrip().startswith("#") and not line.startswith("# @"), line)
             if fx is not None:
-                self.assertIn("\nvar FX = %d " % fx, text)
-                self.assertIn("\nvar BY = %d " % by, text)
+                self.assertIn("\nvar FX = %d\n" % fx, text)
+                self.assertIn("\nvar BY = %d\n" % by, text)
             else:
                 self.assertNotIn("var FX", text)
 

@@ -37,38 +37,21 @@
 # @config npause bool "Pause app rotation in night mode" default=false group="Night mode"
 # @config nbri number "Night brightness" default=0 min=0 max=255 group="Night mode" help="0 keeps the device's brightness; otherwise set at night and restored after"
 # @config ntopic text "MQTT topic" default="" group="Night mode" help="On the broker set in AWTRIX's MQTT settings. Payload on/off, true/false or 1/0"
-
 import math
 import string
-
-# layout: build.py rewrites these two lines for each clock
-var FX = 0 # x of the 32 px content frame
-var BY = 7 # row of the week bar
-
+var FX = 0
+var BY = 7
 class Nimbus
-  # settings, read once in init()
   var t24, tlz, tampm, tsep, tcol, chc, ctc, cbc, wbar, wmon, wtd, wod, wtw, wow
   var tran, ddur, pdur, rcol, hcol, nauto, nfrom, nto, nbar, npause, nbri
-  # layout in display x: panel on the left (rt), calendar box, icon, "?", panel area, time area, week bar
   var rt, sx, ix, qx, ax, ta, bx
-  # rebuilt once a minute: minute, hour and minute texts, AM/PM, x of the time by day and at
-  # night, day number and its offset in the box, week bar colors by day and at night
   var mn, hh, mm, ap, xh, yh, dstr, doff, wb, nb
-  # carousel: panel numbers (0 date, 1 temp, 2 weather, 3 room, 4 humidity), index in it,
-  # panel shown and previous one, seconds left, start of the transition (nil when none)
   var plist, pi, cur, prev, left, an
-  # values (index = panel number), their labels, label widths, x, colors and full texts
-  # for the firmware's bounce scroll; dirty = labels to rebuild in loop()
   var val, ls, lw, lx, lc, lf, dirty, tick, uc, sens, rdev, hdev, sopt
-  # weather: needed, request, options, refresh period, seconds left, request in flight, icon
   var wx, url, hopt, wref, wait, busy, ico
-  # built-in icons: palette, compiled art, morph font, drops and flakes; morph state
   var pal, art, font, fall, cut, mine, rank
-  # night mode: shown now (nil until the first loop), manual switch, MQTT replay pending
   var dark, nman, replay
-
   def init()
-    # settings: read once, saving them restarts the app
     self.t24 = store.get("t24")
     self.tlz = store.get("tlz")
     self.tampm = store.get("tampm")
@@ -94,18 +77,15 @@ class Nimbus
     self.nbar = store.get("nbar")
     self.npause = store.get("npause")
     self.nbri = store.get("nbri")
-
-    # layout in the 32 px frame; "Clock on the right" (default) puts the panel on the left
     var r = store.get("tright")
     self.rt = r
-    self.sx = FX + (r ? 0 : 23)   # calendar box, 9 px
-    self.ix = FX + (r ? 0 : 24)   # weather icon, 8 px
-    self.qx = FX + (r ? 3 : 26)   # "?" placeholder
-    self.ax = FX + (r ? 0 : 21)   # panel area used by the transitions, 11 px
-    self.ta = FX + (r ? 9 : 0)    # time area, 23 px
-    self.bx = self.ta + 1         # week bar, 20 px centred in the time area
+    self.sx = FX + (r ? 0 : 23)
+    self.ix = FX + (r ? 0 : 24)
+    self.qx = FX + (r ? 3 : 26)
+    self.ax = FX + (r ? 0 : 21)
+    self.ta = FX + (r ? 9 : 0)
+    self.bx = self.ta + 1
     self.mn = -1
-    # carousel
     self.plist = []
     for m : re.matchall("[a-z]+", string.tolower(store.get("panels")))
       var i = ["date", "temp", "weather", "room", "humidity"].find(m)
@@ -124,8 +104,6 @@ class Nimbus
     self.dirty = true
     self.tick = 0
     self.sopt = {"mode": "bounce", "speed": 40}
-
-    # weather, only when a panel shows it
     self.wx = self.plist.find(1) != nil || self.plist.find(2) != nil
     self.url = "http://api.open-meteo.com/v1/forecast?latitude=" + str(store.get("lat")) +
                "&longitude=" + str(store.get("lon")) + "&current=temperature_2m,weather_code,is_day"
@@ -133,8 +111,6 @@ class Nimbus
     self.wref = store.get("wref") * 60
     self.wait = 0
     self.busy = false
-
-    # room values: an MQTT topic, or the clock's own sensor when the topic is empty
     var t = store.get("rtopic")
     self.rdev = size(t) == 0
     if !self.rdev && self.plist.find(3) != nil mqtt.subscribe(t, / tp, pl -> self.on_msg(3, pl)) end
@@ -142,23 +118,18 @@ class Nimbus
     self.hdev = size(t) == 0
     if !self.hdev && self.plist.find(4) != nil mqtt.subscribe(t, / tp, pl -> self.on_msg(4, pl)) end
     self.sens = (self.rdev && self.plist.find(3) != nil) || (self.hdev && self.plist.find(4) != nil)
-
-    # built-in 8x8 icons: one letter per pixel ("." is off), "/" starts the next row, compiled
-    # once into bytes of (x, y, palette index) for each lit pixel; palette entries 7 and 8 change
-    # while drawing (sun rays, star)
     self.pal = [0xFFC800, 0xFF7800, 0xFFFFFF, 0xB4B4B4, 0x6E6E6E, 0x3C3C3C, 0xF0DC8C, 0, 0, 0]
     var keys = "YOWLGDMrS#"
     var glyphs = "0123456789-?%"
-    var src = ["...rr/.r....r/..OYYO/r.YYYY.r/r.YYYY.r/..OYYO/.r....r/...rr",          # 0 sun
-               "..MM/.MM...S/MMM/MMM/MMM/MMMM/.MMMMMM/..MMM",                       # 1 clear night
-               "...Y..Y/.Y..OYO/...OYYYO/..LLYYYY/.LWWLLYO/LWWWWWL/WWWWWWWL/GLLLLLG", # 2 partly cloudy
-               "....GG/..GGGGG/.LLGGGGG/LWWLGGGG/WWWWLGGG/WWWWWWL/GLLLLLG",          # 3 cloudy
-               "/.LLLLLL//GGGG.GGG//.LLLLLL//GG.GGGG",                             # 4 fog
-               "/LLLLLL//.GGGG.GG//..LLLLLL//.GG.GGGG",                            # 5 fog, second frame
-               "...LL/.LLWWL/LLWWWWL/LWWWWWWL/GLLLLLLG",                           # 6 rain and snow cloud
-               "...GG/.GGLLGG/GLLLLLLG/DGGGGGGD",                                  # 7 storm cloud
-               ".....YY/....YY/...YYYY/....YY/...YY",                              # 8 bolt, from row 3
-               # the firmware's small font for the morph: 0-9, "-", "?", "%"
+    var src = ["...rr/.r....r/..OYYO/r.YYYY.r/r.YYYY.r/..OYYO/.r....r/...rr",
+               "..MM/.MM...S/MMM/MMM/MMM/MMMM/.MMMMMM/..MMM",
+               "...Y..Y/.Y..OYO/...OYYYO/..LLYYYY/.LWWLLYO/LWWWWWL/WWWWWWWL/GLLLLLG",
+               "....GG/..GGGGG/.LLGGGGG/LWWLGGGG/WWWWLGGG/WWWWWWL/GLLLLLG",
+               "/.LLLLLL//GGGG.GGG//.LLLLLL//GG.GGGG",
+               "/LLLLLL//.GGGG.GG//..LLLLLL//.GG.GGGG",
+               "...LL/.LLWWL/LLWWWWL/LWWWWWWL/GLLLLLLG",
+               "...GG/.GGLLGG/GLLLLLLG/DGGGGGGD",
+               ".....YY/....YY/...YYYY/....YY/...YY",
                "###/#.#/#.#/#.#/###", ".#/##/.#/.#/###", "###/..#/###/#/###", "###/..#/###/..#/###",
                "#.#/#.#/###/..#/..#", "###/#/###/..#/###", "###/#/###/#.#/###", "###/..#/..#/..#/..#",
                "###/#.#/###/#.#/###", "###/#.#/###/..#/###", "//###", "###/..#/.#//.#", "#.#/..#/.#/#/#.#"]
@@ -190,19 +161,15 @@ class Nimbus
       if i < 9 self.art.push(b) else self.font[glyphs[i - 9]] = b end
       i += 1
     end
-    # drops (rain) then flakes (snow): column and phase of three falling pixels
     self.fall = bytes("010004010602010003020601")
-    # random order in which the pixels switch during a morph
     self.rank = bytes()
-    var g = 224 # seed picked so the switches spread evenly over the transition
+    var g = 224
     i = 0
     while i < 256
       g = (g * 75 + 74) % 65537
       self.rank.add(g % 100, 1)
       i += 1
     end
-    # night mode switch: the setting or MQTT, whichever changed last; kept in the store so it
-    # survives restarts
     var s = store.get("night")
     if s != store.get("nset")
       store.set("nset", s)
@@ -213,9 +180,7 @@ class Nimbus
     t = store.get("ntopic")
     if size(t) > 0 mqtt.subscribe(t, / tp, pl -> self.on_msg(0, pl)) end
   end
-
   def loop()
-    # carousel: the next listed panel that has something to show, the date if none has
     self.left -= 1
     if self.left <= 0
       var n = size(self.plist)
@@ -237,16 +202,12 @@ class Nimbus
       end
       self.left = p == 0 ? self.ddur : self.pdur
     end
-
-    # weather: one request in flight, retried after a minute unless on_weather() succeeds
     self.wait -= 1
     if self.wx && self.wait <= 0 && !self.busy
       self.busy = true
       self.wait = 60
       http.get(self.url, / b, s -> self.on_weather(b, s), self.hopt)
     end
-
-    # the clock's own sensors, every 10 s, only when a room panel uses them
     self.tick += 1
     if self.sens && self.tick % 10 == 1
       if self.rdev
@@ -269,9 +230,7 @@ class Nimbus
       self.uc = uc
       self.dirty = true
     end
-
     if self.dirty
-      # labels of the temperature, room temperature and humidity panels
       self.dirty = false
       var p = 1
       while p < 5
@@ -284,7 +243,6 @@ class Nimbus
               s = "--"
               c = 0x666666
             else
-              # color from the temperature in °C: blue up to 10, orange at 20, red from 30
               var t = clamp(round(v), 10, 30)
               c = hsv(t < 20 ? 200 - (t - 10) * 17 : 30 - (t - 20) * 3, 100, 100)
               if !self.uc v = v * 1.8 + 32 end
@@ -295,7 +253,6 @@ class Nimbus
           if v != nil s = str(round(v)) + (p == 4 ? "%" : "") end
           self.ls[p] = s
           if s != nil
-            # temperatures end with a 2 px degree dot, humidity with the font's "%"
             var w = p == 4 ? text_width(s) - 1 : 4 * size(s) + 2
             var x = w <= 9 ? (9 - w) / 2 : 0
             self.lx[p] = FX + (self.rt ? x : 32 - x - w)
@@ -307,15 +264,12 @@ class Nimbus
         p += 1
       end
     end
-    # night mode: the manual switch, or the automatic hours (the window may wrap past midnight)
     var h = hour()
     var f = self.nfrom
     var t = self.nto
     var dk = self.nman || self.nauto && h >= 0 && (f > t ? h >= f || h < t : h >= f && h < t)
     if dk != self.dark
       self.dark = dk
-      # the rotation pause belongs to the firmware and outlives a restart (saving the settings
-      # restarts the app), so whether Nimbus set it is kept in the store
       if dk && self.npause
         rotation.show()
         rotation.pause()
@@ -342,7 +296,6 @@ class Nimbus
       end
     end
   end
-
   def on_weather(b, s)
     self.busy = false
     if s != 200 || b == nil return end
@@ -367,14 +320,10 @@ class Nimbus
     self.wait = self.wref
     self.dirty = true
   end
-
-  # MQTT message: k 0 = night mode switch, 3 room temperature, 4 humidity
   def on_msg(k, p)
     if k == 0
       var v = string.tolower(str(p))
       v = v == "on" || v == "true" || v == "1"
-      # the first message after a restart can be the broker replaying its retained message:
-      # skip it if that value was already applied, so a later change of the setting still wins
       var r = self.replay
       self.replay = false
       if r && v == store.get("nmqtt") return end
@@ -382,7 +331,6 @@ class Nimbus
       store.set("nstate", v)
       self.nman = v
     else
-      # the first number in the message, so "21.5", "21.5 °C" and {"temperature": 21.5} work
       var m = re.search("-?[0-9]+[.]?[0-9]*", str(p))
       if m != nil
         self.val[k] = num(m[0])
@@ -390,13 +338,9 @@ class Nimbus
       end
     end
   end
-
-  # color c at brightness l (0..1), each channel rounded like the firmware does
   def scale(c, l)
     return rgb(int(((c >> 16) & 255) * l + 0.5), int(((c >> 8) & 255) * l + 0.5), int((c & 255) * l + 0.5))
   end
-
-  # morph: the pixels of a rectangle that already belong to the panel being drawn
   def put(x, y, w, h, c)
     var j = y
     while j < y + h
@@ -408,9 +352,6 @@ class Nimbus
       j += 1
     end
   end
-
-  # one panel at offset (ox, oy) and brightness l; during a morph (self.cut set) every pixel
-  # goes through put() and text uses the copied font
   def panel(p, ox, oy, l)
     if p < 0 return end
     var nat = self.cut == nil
@@ -419,7 +360,6 @@ class Nimbus
     var x = 0
     var y = oy + 6
     if p == 0
-      # the official calendar: body, header, then the day number at baseline 7
       x = self.sx + ox
       var b = self.cbc
       var h = self.chc
@@ -444,7 +384,6 @@ class Nimbus
         c = 0x666666
         x = self.qx + ox
       else
-        # built-in icon with its animation: rays, star, fog, falling drops or flakes, bolt
         var t = now_ms()
         var k = self.ico
         self.pal[7] = (t / 600) % 2 ? 0xFF7800 : 0xFFC800
@@ -484,12 +423,10 @@ class Nimbus
         end
       end
     else
-      # temperature, room temperature or humidity label
       s = self.ls[p]
       if s == nil return end
       c = self.lc[p]
       if self.lw[p] > 11
-        # too wide: the firmware bounces it; a morph switches it halfway instead
         if nat || (self.cut >= 50) == self.mine
           scroll_text(self.ax + ox, y, 11, self.lf[p], l < 1 ? self.scale(c, l) : c, self.sopt)
         end
@@ -497,7 +434,6 @@ class Nimbus
       end
       x = self.lx[p] + ox
       if p != 4
-        # temperatures: a solid 2x2 degree dot after the digits
         var cc = l < 1 ? self.scale(c, l) : c
         var dx = x + 4 * size(s)
         if nat rect_fill(dx, oy + 1, 2, 2, cc) else self.put(dx, oy + 1, 2, 2, cc) end
@@ -508,7 +444,6 @@ class Nimbus
       if nat
         text(x, y, s, c)
       else
-        # copied font: each lit pixel through put()
         var i = 0
         while i < size(s)
           var g = self.font[s[i]]
@@ -522,10 +457,8 @@ class Nimbus
       end
     end
   end
-
   def draw()
     if minute() != self.mn
-      # once a minute: the time texts and positions, the day number and the week bar
       var h = hour()
       var m = minute()
       self.mn = m
@@ -537,11 +470,10 @@ class Nimbus
       self.hh = (self.tlz && h < 10 ? "0" : "") + str(h)
       self.mm = (m < 10 ? "0" : "") + str(m)
       self.ap = !self.t24 && self.tampm ? ap : nil
-      # width as the firmware counts it: ":" advances 2 px, the last blank column is not part of it
       var w = text_width(self.hh) + 2 + text_width(self.mm) - 1
-      self.xh = self.ta + (23 - w) / 2           # calendar mode: centred in the time area
+      self.xh = self.ta + (23 - w) / 2
       if self.ap != nil w += text_width(self.ap) end
-      self.yh = FX + (32 - w) / 2                # plain mode (night): centred in the frame
+      self.yh = FX + (32 - w) / 2
       var d = day()
       self.dstr = str(d)
       self.doff = d < 10 ? 3 : 1
@@ -550,18 +482,16 @@ class Nimbus
       self.nb = []
       var i = 0
       while i < 7
-        var c = self.wmon ? (i + 1) % 7 : i     # day shown in column i, 0 = Sunday
+        var c = self.wmon ? (i + 1) % 7 : i
         var we = c == 0 || c == 6
         self.wb.push(c == wd ? (we ? self.wtw : self.wtd) : (we ? self.wow : self.wod))
         self.nb.push(c == wd ? 0xFF0000 : 0xC00000)
         i += 1
       end
     end
-
     clear()
     var dk = self.dark
     if !dk
-      # panel first, so the clock drawn afterwards stays on top; transitions last 500 ms
       var el = self.an == nil ? 500 : now_ms() - self.an
       var tr = self.tran
       if el >= 500 || tr == 7
@@ -570,7 +500,6 @@ class Nimbus
       else
         var a = self.ax
         if tr == 0
-          # wipe: black sweeps over the old panel, then uncovers the new one
           var k = el * 22 / 500
           if k < 11
             self.panel(self.prev, 0, 0, 1)
@@ -580,10 +509,8 @@ class Nimbus
             rect_fill(a + k - 11, 0, 22 - k, 8, 0)
           end
         elif tr == 1
-          # fade: the old panel to black, then the new one from black
           self.panel(el < 250 ? self.prev : self.cur, 0, 0, (math.cos(2 * math.pi * el / 500.0) + 1) * 0.5)
         elif tr == 2
-          # morph: each pixel switches to the new panel at its own random moment
           self.cut = el / 5
           self.mine = false
           self.panel(self.prev, 0, 0, 1)
@@ -591,7 +518,6 @@ class Nimbus
           self.panel(self.cur, 0, 0, 1)
           self.cut = nil
         else
-          # down/up scroll by 8 px, left/right slide by the panel area's 11 px
           var v = tr < 5
           var s = tr == 3 || tr == 6 ? 1 : -1
           var n = v ? 8 : 11
@@ -600,15 +526,11 @@ class Nimbus
           self.panel(self.prev, v ? 0 : d, v ? d : 0, 1)
           self.panel(self.cur, v ? 0 : e, v ? e : 0, 1)
         end
-        # nothing outside the panel area: blacked out before the clock is drawn
         if a > 0 rect_fill(0, 0, a, 8, 0) end
         if a + 11 < width() rect_fill(a + 11, 0, width() - a - 11, 8, 0) end
         if height() > 8 rect_fill(a, 8, 11, height() - 8, 0) end
       end
     end
-
-    # time: hours, colon (steady, blink or pulse, like the official app), minutes; at night the
-    # official plain mode in red, centred in the frame, with AM/PM when enabled
     var tc = dk ? 0xFF0000 : self.tcol
     var x = dk ? self.yh : self.xh
     x += text(x, 6, self.hh, tc)
@@ -622,8 +544,6 @@ class Nimbus
     x += 2
     x += text(x, 6, self.mm, tc)
     if dk && self.ap != nil text(x, 6, self.ap, tc) end
-
-    # week bar: 2 px segments under the time, 3 px across the frame at night
     if dk ? self.nbar : self.wbar
       var sw = dk ? 3 : 2
       var bx = dk ? FX + 2 : self.bx
@@ -637,5 +557,4 @@ class Nimbus
     end
   end
 end
-
 return Nimbus()
