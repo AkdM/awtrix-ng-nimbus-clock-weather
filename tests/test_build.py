@@ -72,6 +72,16 @@ class Install(unittest.TestCase):
             self.assertEqual(defaults["tran"], "wipe")
             self.assertEqual(defaults["panels"], "date,temp,weather")
 
+    def test_mqtt_topics_say_which_broker(self):
+        # Nimbus has no MQTT login of its own: it reads its topics through the clock's connection
+        build()
+        for clock in LAYOUT:
+            sim = need(clock)
+            sim.install()
+            helps = {f["key"]: f.get("help", "") for f in sim.req("GET", "/apps/Nimbus/config")["fields"]}
+            for key in ("rtopic", "htopic", "ntopic"):
+                self.assertIn("broker set in AWTRIX's MQTT settings", helps[key], "%s %s" % (clock, key))
+
 
 if __name__ == "__main__":
     unittest.main()

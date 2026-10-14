@@ -76,14 +76,14 @@ Then open the app settings and set your **latitude** and **longitude** (the defa
 | Weather | Refresh | 15 min | A failed fetch is retried every minute |
 | Weather | Condition words | English | TC002 only, big face: English, Español, Français, Português or Deutsch |
 | Weather | Your own words | empty | TC002 only: your words for clear, partly cloudy, cloudy, fog, rain, snow and storm, in that order, separated by commas; an empty one keeps the language's word |
-| Room | Room temperature MQTT topic / Humidity MQTT topic | empty | Empty uses the clock's sensor |
+| Room | Room temperature MQTT topic / Humidity MQTT topic | empty | On the broker set in AWTRIX's MQTT settings; empty uses the clock's sensor |
 | Room | Room temperature color / Humidity color | #FFFFFF / #00AAFF | |
 | Night mode | Night mode | off | Turns night mode on |
 | Night mode | Automatic night mode, From, Until | off, 22 h, 7 h | Night mode between those hours |
 | Night mode | Week bar in night mode | on | |
 | Night mode | Pause app rotation in night mode | off | Keeps Nimbus on screen at night; pressing a button or switching apps ends the pause early |
 | Night mode | Night brightness | 0 | 0 keeps the device's brightness; otherwise set at night and restored after (device-wide) |
-| Night mode | MQTT topic | empty | Payload `on`/`off`, `true`/`false` or `1`/`0` |
+| Night mode | MQTT topic | empty | On the broker set in AWTRIX's MQTT settings; payload `on`/`off`, `true`/`false` or `1`/`0` |
 
 ## On the TC002
 
@@ -96,11 +96,13 @@ At night every face shows the big face's time in red, centred on the display, wi
 
 ## Room values over MQTT
 
+Nimbus has no MQTT settings of its own: it reads its topics through the clock's connection, so the messages must be published on the broker set in AWTRIX's MQTT settings (host, port, user and password go there). Topics do not have to start with AWTRIX's MQTT prefix.
+
 Set **Room temperature MQTT topic** and/or **Humidity MQTT topic**. Nimbus takes the first number in each message, so `21.5`, `21.5 °C` and `{"temperature": 21.5}` all work, and shows it as received. With Home Assistant, [MQTT Statestream](https://www.home-assistant.io/integrations/mqtt_statestream/) publishes a sensor's state on a topic such as `homeassistant/sensor/salon_temperature/state`, or an automation can call `mqtt.publish` with `retain: true`. A panel without a value is skipped.
 
 ## Night mode over MQTT
 
-Set the night mode **MQTT topic**, then publish `on` or `off`:
+Set the night mode **MQTT topic**, then publish `on` or `off` on the same broker as AWTRIX's:
 
 ```yaml
 action: mqtt.publish

@@ -40,8 +40,8 @@
 # @config wlang select "Condition words" options=English,Español,Français,Português,Deutsch default=English group="Weather" help="Big face"
 # @config wtext text "Your own words" default="" group="Weather" help="Big face. In this order, separated by commas: clear, partly cloudy, cloudy, fog, rain, snow, storm; an empty one keeps the word above"
 # @end
-# @config rtopic text "Room temperature MQTT topic" default="" group="Room" help="Empty uses the clock's sensor"
-# @config htopic text "Humidity MQTT topic" default="" group="Room" help="Empty uses the clock's sensor"
+# @config rtopic text "Room temperature MQTT topic" default="" group="Room" help="On the broker set in AWTRIX's MQTT settings. Empty uses the clock's sensor"
+# @config htopic text "Humidity MQTT topic" default="" group="Room" help="On the broker set in AWTRIX's MQTT settings. Empty uses the clock's sensor"
 # @config rcol color "Room temperature color" default=#FFFFFF group="Room"
 # @config hcol color "Humidity color" default=#00AAFF group="Room"
 # @config night bool "Night mode" default=false group="Night mode"
@@ -51,7 +51,7 @@
 # @config nbar bool "Week bar in night mode" default=true group="Night mode"
 # @config npause bool "Pause app rotation in night mode" default=false group="Night mode"
 # @config nbri number "Night brightness" default=0 min=0 max=255 group="Night mode" help="0 keeps the device's brightness; otherwise set at night and restored after"
-# @config ntopic text "MQTT topic" default="" group="Night mode" help="Payload on/off, true/false or 1/0"
+# @config ntopic text "MQTT topic" default="" group="Night mode" help="On the broker set in AWTRIX's MQTT settings. Payload on/off, true/false or 1/0"
 
 import math
 import string
