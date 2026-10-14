@@ -2,7 +2,7 @@
 import time
 import unittest
 
-from simlib import CHUNKY, FONT, ROOT, diff, dot, glyphs, need, pair, pub, region
+from simlib import CHUNKY, FONT, ROOT, diff, dot, glyphs, held, need, pair, pub, region
 
 W = 52
 BASE = dict(t24=True, tlz=True, tsep="steady", tcol=0xFFFFFF, face="sheet", chc=0xFF0000, ctc=0x000000,
@@ -275,6 +275,72 @@ class Panels(unittest.TestCase):
                                              **dot(49, 11, grey)})
         self.sim.config(**dict(BASE, face="big", panels="weather"))
         self.shows(range(W), range(10, 16), glyphs("?", 48, 11, FONT, grey))
+
+
+TRANSITIONS = ["wipe", "fade", "morph", "down", "up", "left", "right", "none"]
+
+
+class Transitions(unittest.TestCase):
+    AREA = {"sheet": (range(16), range(16)), "big": (range(W), range(10, 16))}
+
+    def check(self, face):
+        sim = need("tc002")
+        sim.install()
+        xs, ys = self.AREA[face]
+        inside = {(x, y) for x in xs for y in ys}
+
+        def area(f):
+            return tuple(f[y * W + x] for y in ys for x in xs)
+
+        def outside(f):
+            return [v for i, v in enumerate(f) if (i % W, i // W) not in inside]
+        sim.config(**dict(BASE, face=face, panels="date"))
+        date = area(sim.screen()[2])
+        for tr in TRANSITIONS:
+            sim.config(**dict(BASE, face=face, panels="date,temp", ddur=2, pdur=2, tran=tr))
+            # each restart fetches the weather; until it answers the temperature is a grey "--"
+            wait_for(sim, lambda f: area(f) != date and any(area(f)) and 0x666666 not in area(f))
+            m = time.localtime().tm_min
+            frames = sim.frames(6)
+            if time.localtime().tm_min != m:
+                frames = sim.frames(6)
+            base = outside(frames[0][1])
+            for _, f in frames:
+                self.assertEqual(outside(f), base, "%s %s: pixels outside the panel area changed" % (face, tr))
+            states = [area(f) for _, f in frames]
+            # 16 captures (about 400 ms): a wipe over the big face's sparse bottom row can hold one
+            # state for up to 180 ms
+            still = held(states, 16) - {date}
+            self.assertEqual(len(still), 1, "%s %s: still frames other than the date: %d" % (face, tr, len(still)))
+            temp = still.pop()
+            middle = set(states) - {date, temp}
+            if tr == "none":
+                self.assertEqual(middle, set(), tr)
+            else:
+                self.assertTrue(middle, "%s %s: no transition frame seen" % (face, tr))
+            if tr == "morph":
+                for s in middle:
+                    self.assertTrue(all(v in (a, b) for v, a, b in zip(s, date, temp)), "morph pixel from neither panel")
+
+    def test_sheet_faces(self):
+        self.check("sheet")
+
+    def test_big_face(self):
+        self.check("big")
+
+    def test_night_mode_during_a_transition(self):
+        sim = need("tc002")
+        sim.install()
+        pub("nimbus/test/night", "", retain=True)
+        sim.config(**dict(BASE, panels="date,temp", ddur=1, pdur=1, tran="morph", ntopic="nimbus/test/night"))
+        time.sleep(1.7)
+        pub("nimbus/test/night", "on")
+        frames = sim.frames(3)
+        pub("nimbus/test/night", "off")
+        for t, f in frames:
+            if t > 1.2:
+                self.assertEqual(region(f, W, range(W), range(10, 15)), {})
+                self.assertTrue(all(v & 0xFFFF == 0 for v in f if v), "a pixel that is not red")
 
 
 if __name__ == "__main__":

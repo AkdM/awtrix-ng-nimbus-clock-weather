@@ -275,6 +275,12 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
       i += 1
     end
     # @if tc002
+    # one rank per pixel of the 52x16 display: index y * 52 + x
+    while i < 832
+      g = (g * 75 + 74) % 65537
+      self.rank.add(g % 100, 1)
+      i += 1
+    end
     # fonts of the time, the sheets and the labels as runs: the small font (its digits, "-", "?"
     # and "%" are the morph font above), its capitals, ":", "." and "/"; chunky digits, "-", ":"
     self.sf = {}
@@ -546,7 +552,12 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
     while j < y + h
       var i = x
       while i < x + w
+        # @if tc001
         if (self.rank[((j & 7) << 5) | (i & 31)] < self.cut) == self.mine pixel(i, j, c) end
+        # @end
+        # @if tc002
+        if i >= 0 && i < 52 && j >= 0 && j < 16 && (self.rank[j * 52 + i] < self.cut) == self.mine pixel(i, j, c) end
+        # @end
         i += 1
       end
       j += 1
@@ -1287,8 +1298,51 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
     if !dk
       self.pal[7] = (t / 600) % 2 ? 0xFF7800 : 0xFFC800
       self.pal[8] = (t / 900) % 2 ? 0x505050 : 0xFFFFFF
-      # panel first, so the clock drawn afterwards stays on top
-      self.panel(self.cur, 0, 0, 1)
+      # panel first, so the clock drawn afterwards stays on top; the panel area is the 16 px
+      # column of the sheet faces or the big face's bottom row; transitions last 500 ms
+      var el = self.an == nil ? 500 : t - self.an
+      var tr = self.tran
+      if el >= 500 || tr == 7
+        self.an = nil
+        self.panel(self.cur, 0, 0, 1)
+      else
+        var ay = f == 3 ? 10 : 0
+        var aw = f == 3 ? 52 : 16
+        var ah = f == 3 ? 6 : 16
+        if tr == 0
+          # wipe: black sweeps over the old panel, then uncovers the new one
+          var k = el * 2 * aw / 500
+          if k < aw
+            self.panel(self.prev, 0, 0, 1)
+            if k > 0 rect_fill(0, ay, k, ah, 0) end
+          else
+            self.panel(self.cur, 0, 0, 1)
+            rect_fill(k - aw, ay, 2 * aw - k, ah, 0)
+          end
+        elif tr == 1
+          # fade: the old panel to black, then the new one from black
+          self.panel(el < 250 ? self.prev : self.cur, 0, 0, (math.cos(2 * math.pi * el / 500.0) + 1) * 0.5)
+        elif tr == 2
+          # morph: each pixel switches to the new panel at its own random moment
+          self.cut = el / 5
+          self.mine = false
+          self.panel(self.prev, 0, 0, 1)
+          self.mine = true
+          self.panel(self.cur, 0, 0, 1)
+          self.cut = nil
+        else
+          # down/up scroll by the area's height, left/right slide by its width
+          var v = tr < 5
+          var s = tr == 3 || tr == 6 ? 1 : -1
+          var n = v ? ah : aw
+          var d = el * n / 500 * s
+          var e = d - n * s
+          self.panel(self.prev, v ? 0 : d, v ? d : 0, 1)
+          self.panel(self.cur, v ? 0 : e, v ? e : 0, 1)
+        end
+        # nothing outside the panel area: blacked out before the clock is drawn
+        if f == 3 rect_fill(0, 0, 52, 10, 0) else rect_fill(16, 0, 36, 16, 0) end
+      end
     end
 
     # time: the big face's at night and on the big face, the flap cards, or double size next to

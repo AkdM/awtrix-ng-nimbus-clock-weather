@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from simlib import need, region
+from simlib import held, need, region
 
 BASE = dict(t24=True, tlz=True, tampm=False, tsep="steady", tcol=0xFFFFFF, tright=True, chc=0xFF0000,
             ctc=0x000000, cbc=0xFFFFFF, wbar=True, wmon=True, wtd=0xFFFFFF, wod=0x666666, wtw=0xFFFFFF,
@@ -23,17 +23,6 @@ def area(sim, f):
 def label_colors(a):
     """Colors lit in the panel area's rows 0-6 (row 7 holds a week-bar segment on the TC001)."""
     return {v for i, v in enumerate(a) if v and i < 7 * 11}
-
-
-def held(states, n=8):
-    """States that stay on screen for at least n captures in a row (about 200 ms): the still
-    panels; a transition frame never lasts that long."""
-    out, run = set(), 1
-    for a, b in zip(states, states[1:]):
-        run = run + 1 if a == b else 1
-        if run >= n:
-            out.add(a)
-    return out
 
 
 class Transitions(unittest.TestCase):

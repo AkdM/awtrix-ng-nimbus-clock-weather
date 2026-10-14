@@ -260,3 +260,14 @@ def glyphs(s, x0, y0, font, color):
 def dot(x, y, color):
     """The 2x2 degree dot."""
     return {(x, y): color, (x + 1, y): color, (x, y + 1): color, (x + 1, y + 1): color}
+
+
+def held(states, n=8):
+    """States that stay on screen for at least n captures in a row (8: about 200 ms): the still
+    panels; a transition frame does not last that long."""
+    out, run = set(), 1
+    for a, b in zip(states, states[1:]):
+        run = run + 1 if a == b else 1
+        if run >= n:
+            out.add(a)
+    return out
