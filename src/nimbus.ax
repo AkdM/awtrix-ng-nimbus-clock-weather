@@ -81,16 +81,16 @@ class Nimbus
   # the double-size time, the big face's time and the flap cards; weekday and month names,
   # weather conditions and their x on the bottom row
   var sf, cf, r2, rb, rf, wdn, mon, words, wpx
-  # rebuilt once a minute: minute, time text, rectangles of the big time and of the double-size
-  # time (digits, colon), flap cards (steady rectangles, masks now and a minute ago, turning),
-  # week bar colors by day and at night
-  var mn, tt, bd, bc, sd, sc, ft, fa, fo, ff, wb, nb
+  # rebuilt once a minute: minute, time text, rectangles of the big time (on the big face, then
+  # centred at night) and of the double-size time (digits, colon), flap cards (steady rectangles,
+  # masks now and a minute ago, turning), week bar colors by day and at night
+  var mn, tt, bd, bc, nd, nc, sd, sc, ft, fa, fo, ff, wb, nb
   # rebuilt once a day: day, today's and yesterday's sheet (rows of runs), the bottom row's
   # weekday, date and its x; tear-off start (nil when none); time of the last frame
   var dd, today, yday, wds, dts, dx, tear, seen
   # label font by panel number: 0 chunky, 1 small, 2 bouncing
   var lk
-  # until the time is known: [layout (the face, 3 at night), its dashes as rectangles]
+  # until the time is known: [layout (the face, 4 at night), its dashes as rectangles]
   var nt
   # @end
   # carousel: panel numbers (0 date, 1 temp, 2 weather, 3 room, 4 humidity), index in it,
@@ -1223,14 +1223,14 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
       # the time is not known yet (a boot without network): dashes in the face's time layout,
       # like the official clock, and no panel until it is
       clear()
-      var f = self.dark ? 3 : self.face
+      var f = self.dark ? 4 : self.face          # 4: night, the big dashes centred
       var c = self.dark ? 0xFF0000 : self.tcol
       if self.nt == nil || self.nt[0] != f
         if f == 2
           self.nt = [f, [self.cells("--", self.sf, self.rf, 2, 2, 17, 16, 3)[0],
                          self.cells("--", self.sf, self.rf, 2, 2, 36, 16, 3)[0]]]
         else
-          self.nt = [f, f == 3 ? self.cells("--:--", self.cf, self.rb, 2, 1, 0, 52, 0)
+          self.nt = [f, f >= 3 ? self.cells("--:--", self.cf, self.rb, 2, 1, 0, 52, f == 4 ? 3 : 0)
                                : self.cells("--:--", self.sf, self.r2, 2, 2, 17, 34, self.wbar ? 2 : 3)]
         end
       end
@@ -1262,6 +1262,9 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
       var b = self.cells(tt, self.cf, self.rb, 2, 1, 0, 52, 0)
       self.bd = b[0]
       self.bc = b[1]
+      b = self.cells(tt, self.cf, self.rb, 2, 1, 0, 52, 3)      # at night: rows 3-12, centred
+      self.nd = b[0]
+      self.nc = b[1]
       var f = self.face
       if f == 2
         var c = string.find(tt, ":")
@@ -1387,7 +1390,10 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
       lv = 0.5 * (1 - math.cos(2 * math.pi * (epoch_ms() % 2000) / 2000.0))
     end
     var cc = lv <= 0 ? nil : (lv < 1 ? self.scale(tc, lv) : tc)
-    if dk || f == 3
+    if dk
+      self.rects(self.nd, tc)
+      if cc != nil self.rects(self.nc, cc) end
+    elif f == 3
       self.rects(self.bd, tc)
       if cc != nil self.rects(self.bc, cc) end
     elif f == 2

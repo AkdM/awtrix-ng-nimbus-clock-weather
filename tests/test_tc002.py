@@ -50,15 +50,16 @@ class Faces(unittest.TestCase):
 
 
 class Night(unittest.TestCase):
-    def test_big_red_time_and_a_centred_week_bar_on_every_face(self):
+    def test_big_red_time_centred_and_the_week_bar_on_every_face(self):
         sim = need("tc002")
         sim.install()
         for face, case in (("sheet", {}), ("flap", {"t24": False}), ("big", {"nbar": False})):
             cfg = dict(BASE, face=face, night=True, **case)
             sim.config(**cfg)
             a, b = pair(sim, cfg, red=True)
-            self.assertEqual([d for d in diff(a, b, W) if d[1] < 10], [], "%s %s" % (face, case))
-            self.assertEqual(region(a, W, range(W), range(10, 15)), {}, face)
+            # the official big face's time (its rows 0-9), centred on the display: rows 3-12
+            self.assertEqual(diff(a[3 * W:13 * W], b[:10 * W], W), [], "%s %s" % (face, case))
+            self.assertEqual(region(a, W, range(W), [0, 1, 2, 13, 14]), {}, face)
             bar = region(a, W, range(W), [15])
             if cfg["nbar"]:
                 # 4 px segments from x 9 to 42: today red, the other days dark red
@@ -381,7 +382,7 @@ class Transitions(unittest.TestCase):
         pub("nimbus/test/night", "off")
         for t, f in frames:
             if t > 1.2:
-                self.assertEqual(region(f, W, range(W), range(10, 15)), {})
+                self.assertEqual(region(f, W, range(W), [0, 1, 2, 13, 14]), {})
                 self.assertTrue(all(v & 0xFFFF == 0 for v in f if v), "a pixel that is not red")
 
 

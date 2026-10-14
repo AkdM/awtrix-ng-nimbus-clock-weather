@@ -92,7 +92,7 @@ Pick the face with **Clock face**. The time and the week bar are the TC002 clock
 - **`sheet`, `ring`, `flap`**: the carousel replaces the sheet. The date panel is the face's sheet, torn off when Nimbus appears and at midnight (**Calendar animation**). Temperatures and humidity are in big digits, the weather icon at double size.
 - **`big`**: the time stays and the bottom row cycles: the weekday and the date (**Date format**), then the temperature, the weather, the room temperature and the humidity, each with a small icon made for it. The weather's word is in English, Spanish, French, Portuguese or German (**Condition words**), or your own: `,,OVERCAST` replaces only "cloudy". A word wider than the space next to the icon bounces.
 
-At night every face shows the big face's time in red, with the week bar centred below it.
+At night every face shows the big face's time in red, centred on the display, with the week bar on the bottom row (**Week bar in night mode**).
 
 ## Room values over MQTT
 
