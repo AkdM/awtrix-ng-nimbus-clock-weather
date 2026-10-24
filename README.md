@@ -51,6 +51,16 @@ curl -X PUT -H "Content-Type: text/plain" --data-binary @dist/nimbus-tc001.ax \
 
 Then open the app settings and set your **latitude** and **longitude** (the default is Paris).
 
+### A note on memory (TC001)
+
+Nimbus packs a whole clock face, a weather service, animated icons, eight transitions and a night mode into one script, so it is one of the larger scripts a TC001 can run. To make it fit, the files in `dist/` are minified: 2.0 takes about 29 KB of the 96 KB the TC001 shares between all its scripts, and the file itself is 13 KB. On most clocks that is plenty. If the clock answers **"not enough memory"** when you install, update or open Nimbus's settings:
+
+- **Remove scripts you don't use.** A disabled app still takes its share of memory; deleting it gives it back.
+- **Restart the clock and try again.** Memory gets fragmented over days; a fresh start gives it back in one piece.
+- **Replace Nimbus with scripts switched off:** switch scripting off in the system settings (`scriptingEnabled`), restart, install, switch it back on and restart. The new script then loads on a clean memory.
+
+The TC002 has memory to spare: none of this applies there.
+
 ## Settings
 
 | Group | Setting | Default | What it does |
@@ -128,7 +138,7 @@ The icons live in `src/nimbus.ax` as pixel-art strings (see `init()`): one palet
 
 ## Development
 
-`src/nimbus.ax` is the source: lines between `# @if tc001` (or `tc002`) and `# @end` go only into that clock's file. `python3 build.py` writes the scripts in `dist/`, without comments and blank lines to keep them light on the clock (commit them with the source; `python3 build.py --check` fails when they are out of date).
+`src/nimbus.ax` is the source: lines between `# @if tc001` (or `tc002`) and `# @end` go only into that clock's file. `python3 build.py` writes the scripts in `dist/`, minified for the clock (short names, no comments or spaces): the clock keeps a script's whole source in memory to install it and to list its settings. Read and edit `src/nimbus.ax`; commit the `dist/` files with it (`python3 build.py --check` fails when they are out of date).
 
 The tests drive two AWTRIX NG simulators, the firmware's own Linux build in containers:
 
@@ -147,13 +157,14 @@ Made for the **Ulanzi TC001 (32×8)**, tested on a real one, and for the **Ulanz
 
 ## Changelog
 
-### 2.0
+### 2.0 — 2026-10-24
 - Rebuilt from scratch: the clock and calendar are now an exact copy of the official Time app, with its settings (12/24 h, leading zero, AM/PM, colon modes, colors, week bar).
 - Carousel with any order of `date`, `temp`, `weather`, `room` and `humidity`.
 - Room temperature and humidity from the clock's sensor or MQTT.
 - Night mode: official plain layout in red, optional week bar, app rotation pause and night brightness.
 - TC002 version: the TC002's clock faces `sheet`, `ring`, `flap` and `big`, with the carousel in the sheet's place or on the big face's bottom row, small icons made for it, the weather's word in five languages or your own, and the big face's time in red at night.
-- Settings have new names: 1.x settings are not carried over.
+- New settings: the location, weather refresh, date duration, transition, clock side and night mode hours and topic carry over from 1.x; the others start from their defaults.
+- The files in `dist/` are minified to fit the TC001's memory; `src/nimbus.ax` is the readable source.
 
 ### 1.2 — 2026-10-02
 - The degree sign is a solid dot instead of a ring.
