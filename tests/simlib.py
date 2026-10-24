@@ -1,6 +1,7 @@
 """Drive the AWTRIX NG simulators (sim/sim.sh) over their HTTP API for the Nimbus tests."""
 import json
 import subprocess
+import sys
 import time
 import unittest
 import urllib.error
@@ -130,6 +131,19 @@ class Sim:
     def nimbus(self):
         self.only("Nimbus")
         return self.screen()[2]
+
+
+def script(clock, edits=()):
+    """The script build.py makes for clock, with each exact (old, new) replacement made in its
+    readable form first, then minified like the files in dist/."""
+    sys.path.insert(0, str(ROOT))
+    import build
+    layouts = json.loads((ROOT / "src" / "layouts.json").read_text())
+    plain = build.render((ROOT / "src" / "nimbus.ax").read_text(), clock, layouts[clock], layouts, minified=False)
+    for old, new in edits:
+        assert plain.count(old) == 1, (plain.count(old), old)
+        plain = plain.replace(old, new)
+    return build.minify(plain)
 
 
 def need(clock):

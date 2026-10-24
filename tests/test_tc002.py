@@ -2,7 +2,7 @@
 import time
 import unittest
 
-from simlib import CHUNKY, FONT, ROOT, diff, dot, glyphs, held, need, pair, pub, region
+from simlib import CHUNKY, FONT, diff, dot, glyphs, held, need, pair, pub, region, script
 
 W = 52
 BASE = dict(t24=True, tlz=True, tsep="steady", tcol=0xFFFFFF, face="sheet", chc=0xFF0000, ctc=0x000000,
@@ -149,21 +149,15 @@ class Animations(unittest.TestCase):
 
     def test_yesterday_across_month_and_year_ends(self):
         sim = need("tc002")
-        real = (ROOT / "dist" / "nimbus-tc002.ax").read_text()
         cases = (((1, 3, 2024), (29, "FEB")), ((1, 3, 2023), (28, "FEB")), ((1, 1, 2025), (31, "DEC")),
                  ((1, 5, 2025), (30, "APR")), ((15, 10, 2026), (14, "OCT")))
         for (d, m, y), (yd, ym) in cases:
             # a copy on that date whose tear-off stays at its start: yesterday's sheet, whole
-            demo = real
-            for old, new in (("      var d = day()\n", "      var d = %d\n" % d),
-                             ("        var mo = month()\n        var y = year()\n",
-                              "        var mo = %d\n        var y = %d\n" % (m, y)),
-                             ("        if e >= 1100\n", "        if false\n"),
-                             ("          var q = e / 1100.0\n", "          var q = 0.0\n"),
-                             ("    self.lk = [0, 0, 0, 0, 0]\n", "    self.lk = [0, 0, 0, 0, 0]\n    self.tear = 0\n")):
-                self.assertEqual(demo.count(old), 1, old)
-                demo = demo.replace(old, new)
-            sim.install(demo)
+            sim.install(script("tc002", (("\nvar d = day()\n", "\nvar d = %d\n" % d),
+                                         ("\nvar mo = month()\nvar y = year()\n", "\nvar mo = %d\nvar y = %d\n" % (m, y)),
+                                         ("\nif e >= 1100\n", "\nif false\n"),
+                                         ("\nvar q = e / 1100.0\n", "\nvar q = 0.0\n"),
+                                         ("\nself.lk = [0, 0, 0, 0, 0]\n", "\nself.lk = [0, 0, 0, 0, 0]\nself.tear = 0\n"))))
             sim.config(**dict(BASE, canim=True, ctc=0x0000FF))
             sim.only("Nimbus")
             expected = sheet_px(yd, ym, BASE["chc"], BASE["cbc"], 0x0000FF)
@@ -192,12 +186,9 @@ class Boot(unittest.TestCase):
         # right after a boot without network every time call answers -1 (now_ms() excepted): a copy
         # whose time calls always do
         sim = need("tc002")
-        real = (ROOT / "dist" / "nimbus-tc002.ax").read_text()
         calls = "".join("def %s() return -1 end\n" % c
                         for c in ("hour", "minute", "second", "day", "month", "year", "weekday", "epoch_ms"))
-        demo = real.replace("import string\n", "import string\n" + calls, 1)
-        self.assertNotEqual(demo, real)
-        sim.install(demo)
+        sim.install(script("tc002", (("import string\n", "import string\n" + calls),)))
         try:
             for face in ("sheet", "flap", "big"):
                 sim.config(**dict(BASE, face=face, panels="date,temp", ddur=1, pdur=1))
@@ -273,12 +264,9 @@ class Panels(unittest.TestCase):
         self.assertTrue(region(f, W, range(0, 9), range(11, 16)), "no icon")
 
     def test_condition_words_in_each_language_and_your_own(self):
-        real = (ROOT / "dist" / "nimbus-tc002.ax").read_text()
         # rain from the start, whatever the weather and even when its answer is late
-        demo = real.replace("    self.ico = n\n", "    self.ico = 5\n", 1)
-        demo = demo.replace("    self.lk = [0, 0, 0, 0, 0]\n", "    self.lk = [0, 0, 0, 0, 0]\n    self.ico = 5\n", 1)
-        self.assertEqual(demo.count("self.ico = 5"), 2)
-        self.sim.install(demo)
+        self.sim.install(script("tc002", (("\nself.ico = n\n", "\nself.ico = 5\n"),
+                                          ("\nself.lk = [0, 0, 0, 0, 0]\n", "\nself.lk = [0, 0, 0, 0, 0]\nself.ico = 5\n"))))
         word = (range(9, W), range(10, 16))
 
         def ends(f, x0):
@@ -304,10 +292,7 @@ class Panels(unittest.TestCase):
         self.assertGreater(len({tuple(sorted(region(f, W, *word))) for f in frames}), 1, "the word does not move")
 
     def test_placeholders_without_weather(self):
-        real = (ROOT / "dist" / "nimbus-tc002.ax").read_text()
-        demo = real.replace("http://api.open-meteo.com/v1/forecast", "http://127.0.0.1:9/v1/forecast", 1)
-        self.assertNotEqual(demo, real)
-        self.sim.install(demo)
+        self.sim.install(script("tc002", (("http://api.open-meteo.com/v1/forecast", "http://127.0.0.1:9/v1/forecast"),)))
         grey = 0x666666
         self.sim.config(**dict(BASE, panels="temp"))
         self.shows(range(16), range(16), {**glyphs("--", 1, 4, CHUNKY, grey), **dot(13, 4, grey)})

@@ -4,7 +4,7 @@ Usage: python3 tests/screens.py [tc001] [tc002]   (both when none is given)"""
 import sys
 import time
 
-from simlib import ROOT, Sim
+from simlib import ROOT, Sim, script
 
 # the file name in docs/ and the settings of each shot
 SHOTS = {
@@ -45,10 +45,9 @@ def main():
     for clock in sys.argv[1:] or list(SHOTS):
         sim = Sim(clock)
         real = (ROOT / "dist" / ("nimbus-%s.ax" % clock)).read_text()
-        demo = real.replace("      var h = hour()\n      var m = minute()\n", "      var h = 13\n      var m = 37\n", 1)
-        # a daytime icon next to 13:37, whatever the weather outside: partly cloudy
-        demo = demo.replace("    self.ico = n\n", "    self.ico = 2\n", 1)
-        assert demo.count("var h = 13") == 1 and demo.count("self.ico = 2") == 1
+        # 13:37, and a daytime icon next to it whatever the weather outside: partly cloudy
+        demo = script(clock, (("\nvar h = hour()\nvar m = minute()\n", "\nvar h = 13\nvar m = 37\n"),
+                              ("\nself.ico = n\n", "\nself.ico = 2\n")))
         try:
             sim.req("PUT", "/apps/script/Nimbus", raw=demo.encode())
             sim.only("Nimbus")
