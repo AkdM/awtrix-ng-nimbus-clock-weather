@@ -91,8 +91,10 @@ The TC002 has memory to spare: none of this applies there.
 | Night mode | Night mode | off | Turns night mode on |
 | Night mode | Automatic night mode, From, Until | off, 22 h, 7 h | Night mode between those hours |
 | Night mode | Week bar in night mode | on | |
+| Night mode | Big time at night | off | TC001 only: the time in bold digits across the whole display, without the week bar |
 | Night mode | Pause app rotation in night mode | off | Keeps Nimbus on screen at night; pressing a button or switching apps ends the pause early |
 | Night mode | Night brightness | 0 | 0 keeps the device's brightness; otherwise set at night and restored after (device-wide) |
+| Night mode | Auto brightness at night | off | TC001 only: the light sensor sets the brightness at night, within the clock's own min/max, then your setting comes back; takes over the night brightness |
 | Night mode | MQTT topic | empty | On the broker set in AWTRIX's MQTT settings; payload `on`/`off`, `true`/`false` or `1`/`0` |
 
 ## On the TC002
@@ -156,6 +158,10 @@ The TC001 simulator is on http://localhost:8080 and the TC002 one on http://loca
 Made for the **Ulanzi TC001 (32×8)**, tested on a real one, and for the **Ulanzi TC002 (52×16)**, tested in its simulator. Other 32×8 panels should work with the TC001 file; feedback welcome!
 
 ## Changelog
+
+### 2.1 — 2026-10-24
+- TC001: **Big time at night**, the time in bold 6×8 digits across the whole display at night (no week bar, no AM/PM).
+- TC001: **Auto brightness at night**, the light sensor sets the brightness at night, and your own setting comes back in the morning.
 
 ### 2.0 — 2026-10-24
 - Rebuilt from scratch: the clock and calendar are now an exact copy of the official Time app, with its settings (12/24 h, leading zero, AM/PM, colon modes, colors, week bar).

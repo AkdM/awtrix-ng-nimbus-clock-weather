@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from simlib import diff, need, pair, pub
+from simlib import FONT, diff, need, pair, pub, region
 
 BASE = dict(t24=True, tlz=True, tampm=False, tsep="steady", tcol=0xFFFFFF, tright=True, chc=0xFF0000,
             ctc=0x000000, cbc=0xFFFFFF, wbar=True, wmon=True, wtd=0xFFFFFF, wod=0x666666, wtw=0xFFFFFF,
@@ -24,6 +24,42 @@ class Layout(unittest.TestCase):
             sim.config(**cfg)
             a, b = pair(sim, cfg, mode=0, red=True)
             self.assertEqual(diff(a, b, sim.w), [], str(case))
+
+
+def bold(t):
+    """{(x, y): red} of the big night time: the small font's digits at double width with their
+    three bars doubled (glyph rows 0-4 on rows 0-1, 2, 3-4, 5, 6-7), 1 px apart, centred; the colon
+    is two 2x1 dots on rows 2 and 5."""
+    px, x = {}, (37 - 7 * len(t)) // 2
+    for c in t:
+        if c == ":":
+            px.update({(x + dx, y): 0xFF0000 for dx in (0, 1) for y in (2, 5)})
+            x += 3
+            continue
+        for gy, row in enumerate(FONT[c]):
+            for gx, v in enumerate(row):
+                if v == "#":
+                    y0, h = (3 * gy + 1) // 2, 2 - gy % 2
+                    px.update({(x + 2 * gx + dx, y0 + dy): 0xFF0000 for dx in (0, 1) for dy in range(h)})
+        x += 7
+    return px
+
+
+class BigTime(unittest.TestCase):
+    def test_fills_the_display_without_the_week_bar(self):
+        sim = need("tc001")
+        sim.install()
+        for case in ({}, {"t24": False, "tlz": False}):
+            cfg = dict(BASE, night=True, nbig=True, **case)
+            sim.config(**cfg)
+            for _ in range(3):
+                now = time.localtime()
+                f = sim.nimbus()
+                if time.localtime().tm_min == now.tm_min:
+                    break
+            h = now.tm_hour if cfg["t24"] else (now.tm_hour % 12 or 12)
+            t = ("%02d" if cfg["tlz"] else "%d") % h + ":%02d" % now.tm_min
+            self.assertEqual(region(f, 32, range(32), range(8)), bold(t), "%s %s" % (case, t))
 
 
 class Switching(unittest.TestCase):
@@ -74,6 +110,18 @@ class Switching(unittest.TestCase):
         time.sleep(2.5)
         s = self.sim.req("GET", "/settings")
         self.assertEqual((s["autoBrightness"], s["brightness"]), (True, 120))
+
+    def test_auto_brightness_is_set_and_restored(self):
+        self.sim.settings(autoBrightness=False, brightness=120)
+        self.sim.config(**dict(BASE, nbri=20, nabri=True, ntopic="nimbus/test/night"))
+        pub("nimbus/test/night", "on")
+        time.sleep(2.5)
+        s = self.sim.req("GET", "/settings")
+        self.assertEqual((s["autoBrightness"], s["brightness"]), (True, 120))   # the light sensor decides
+        pub("nimbus/test/night", "off")
+        time.sleep(2.5)
+        s = self.sim.req("GET", "/settings")
+        self.assertEqual((s["autoBrightness"], s["brightness"]), (False, 120))
 
     def test_rotation_pause(self):
         sim = self.sim

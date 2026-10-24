@@ -13,7 +13,10 @@ CLOCKS = ("tc001", "tc002")
 REST = ["wbar", "wmon", "wtd", "wod", "wtw", "wow", "panels", "ddur", "pdur", "tran", "lat", "lon", "wref", "rtopic",
         "htopic", "rcol", "hcol", "night", "nauto", "nfrom", "nto", "nbar", "npause", "nbri", "ntopic"]
 WEATHER = REST.index("wref") + 1   # the TC002 adds its weather words after the refresh period
-KEYS = {"tc001": ["t24", "tlz", "tampm", "tsep", "tcol", "tright", "chc", "ctc", "cbc"] + REST,
+NBAR = REST.index("nbar") + 1     # the TC001 adds its big night time after the night week bar
+NBRI = REST.index("nbri") + 1     # and its auto brightness at night after the night brightness
+KEYS = {"tc001": ["t24", "tlz", "tampm", "tsep", "tcol", "tright", "chc", "ctc", "cbc"] + REST[:NBAR] + ["nbig"]
+        + REST[NBAR:NBRI] + ["nabri"] + REST[NBRI:],
         "tc002": ["t24", "tlz", "tsep", "tcol", "face", "chc", "ctc", "cbc", "canim", "dfmt"] + REST[:WEATHER]
         + ["wlang", "wtext"] + REST[WEATHER:]}
 

@@ -1,7 +1,7 @@
 # @name Nimbus
 # @desc Clock with calendar, weather and room values, like the official Time app
 # @author AkdM
-# @version 2.0
+# @version 2.1
 # @display 32x8
 # @config t24 bool "24-hour clock" default=true group="Time"
 # @config tlz bool "Leading zero" default=true group="Time"
@@ -49,8 +49,14 @@
 # @config nfrom number "From" default=22 min=0 max=23 unit=h group="Night mode"
 # @config nto number "Until" default=7 min=0 max=23 unit=h group="Night mode"
 # @config nbar bool "Week bar in night mode" default=true group="Night mode"
+# @if tc001
+# @config nbig bool "Big time at night" default=false group="Night mode" help="The time across the whole display, without the week bar"
+# @end
 # @config npause bool "Pause app rotation in night mode" default=false group="Night mode"
 # @config nbri number "Night brightness" default=0 min=0 max=255 group="Night mode" help="0 keeps the device's brightness; otherwise set at night and restored after"
+# @if tc001
+# @config nabri bool "Auto brightness at night" default=false group="Night mode" help="The light sensor sets the brightness at night, within the clock's own range; restored after. Takes over the night brightness"
+# @end
 # @config ntopic text "MQTT topic" default="" group="Night mode" help="On the broker set in AWTRIX's MQTT settings. Payload on/off, true/false or 1/0"
 
 import math
@@ -66,12 +72,15 @@ class Nimbus
   # settings, read once in init()
   var t24, tlz, tampm, tsep, tcol, chc, ctc, cbc, wbar, wmon, wtd, wod, wtw, wow
   var tran, ddur, pdur, rcol, hcol, nauto, nfrom, nto, nbar, npause, nbri
+  var nabri   # auto brightness at night, TC001 only (nil on the TC002)
   # @if tc001
   # layout in display x: panel on the left (rt), calendar box, icon, "?", panel area, time area, week bar
   var rt, sx, ix, qx, ax, ta, bx
   # rebuilt once a minute: minute, hour and minute texts, AM/PM, x of the time by day and at
   # night, day number and its offset in the box, week bar colors by day and at night
   var mn, hh, mm, ap, xh, yh, dstr, doff, wb, nb
+  # big time at night: the setting, (x, y, height) of its 2 px wide rectangles, the colon's x
+  var nbig, nr, nx
   # @end
   # @if tc002
   # face (0 sheet, 1 ring, 2 flap, 3 big), tear-off on, date format (0 dd.mm.yy, 1 mm/dd/yy,
@@ -146,6 +155,8 @@ class Nimbus
     self.ax = FX + (r ? 0 : 21)   # panel area used by the transitions, 11 px
     self.ta = FX + (r ? 9 : 0)    # time area, 23 px
     self.bx = self.ta + 1         # week bar, 20 px centred in the time area
+    self.nbig = store.get("nbig")
+    self.nabri = store.get("nabri")
     # @end
     # @if tc002
     self.face = ["sheet", "ring", "flap", "big"].find(store.get("face"))
@@ -477,12 +488,16 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
         store.set("npz", false)
       end
       if dk
-        if self.nbri > 0
+        # nabri only exists on the TC001, the TC002 has no light sensor
+        var au = self.nabri == true
+        if au || self.nbri > 0
           if !store.get("nbsave", false)
             store.set("nbsave", [settings.get("autoBrightness"), settings.get("brightness")])
           end
-          settings.set("autoBrightness", false)
-          settings.set("brightness", self.nbri)
+          settings.set("autoBrightness", au)
+          if !au
+            settings.set("brightness", self.nbri)
+          end
         end
       else
         var sv = store.get("nbsave", false)
@@ -700,6 +715,32 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
       self.xh = self.ta + (23 - w) / 2           # calendar mode: centred in the time area
       if self.ap != nil w += text_width(self.ap) end
       self.yh = FX + (32 - w) / 2                # plain mode (night): centred in the frame
+      if self.nbig
+        # big time at night: the small font's digits (the morph's copy) at double width with
+        # their three bars doubled, 6x8, 1 px apart and centred; glyph rows 0-4 go to rows 0-1,
+        # 2, 3-4, 5 and 6-7
+        var t = self.hh + ":" + self.mm
+        var x = FX + (37 - 7 * size(t)) / 2
+        self.nr = bytes()
+        var i = 0
+        while i < size(t)
+          if t[i] == ":"
+            self.nx = x
+            x += 3
+          else
+            var g = self.font[t[i]]
+            var j = 0
+            while j < size(g)
+              self.nr.add(x + 2 * g[j], 1)
+              self.nr.add((3 * g[j + 1] + 1) / 2, 1)
+              self.nr.add(2 - g[j + 1] % 2, 1)
+              j += 3
+            end
+            x += 7
+          end
+          i += 1
+        end
+      end
       var d = day()
       self.dstr = str(d)
       self.doff = d < 10 ? 3 : 1
@@ -768,14 +809,28 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
     # time: hours, colon (steady, blink or pulse, like the official app), minutes; at night the
     # official plain mode in red, centred in the frame, with AM/PM when enabled
     var tc = dk ? 0xFF0000 : self.tcol
-    var x = dk ? self.yh : self.xh
-    x += text(x, 6, self.hh, tc)
     var lv = 1
     if self.tsep == 1
       lv = second() % 2 ? 0 : 1
     elif self.tsep == 2
       lv = 0.5 * (1 - math.cos(2 * math.pi * (epoch_ms() % 2000) / 2000.0))
     end
+    if dk && self.nbig
+      # big time at night: the whole display, no week bar
+      var i = 0
+      while i < size(self.nr)
+        rect_fill(self.nr[i], self.nr[i + 1], 2, self.nr[i + 2], tc)
+        i += 3
+      end
+      if lv > 0
+        var c = lv < 1 ? self.scale(tc, lv) : tc
+        rect_fill(self.nx, 2, 2, 1, c)
+        rect_fill(self.nx, 5, 2, 1, c)
+      end
+      return
+    end
+    var x = dk ? self.yh : self.xh
+    x += text(x, 6, self.hh, tc)
     if lv > 0 text(x, 6, ":", lv < 1 ? self.scale(tc, lv) : tc) end
     x += 2
     x += text(x, 6, self.mm, tc)
