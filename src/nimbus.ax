@@ -1,7 +1,7 @@
 # @name Nimbus
 # @desc Clock with calendar, weather and room values, like the official Time app
 # @author AkdM
-# @version 2.1
+# @version 2.2
 # @display 32x8
 # @config t24 bool "24-hour clock" default=true group="Time"
 # @config tlz bool "Leading zero" default=true group="Time"
@@ -37,6 +37,7 @@
 # @config lon number "Longitude" default=2.3522 min=-180 max=180 step=0.0001 group="Weather"
 # @config wref number "Refresh" default=15 min=5 max=120 unit=min group="Weather"
 # @if tc002
+# @config tunit select "Temperature unit" options="Clock setting,°C,°F" default="Clock setting" group="Weather" help="The TC002's web UI has no switch for the clock's own °C/°F setting"
 # @config wlang select "Condition words" options=English,Español,Français,Português,Deutsch default=English group="Weather" help="Big face"
 # @config wtext text "Your own words" default="" group="Weather" help="Big face. In this order, separated by commas: clear, partly cloudy, cloudy, fog, rain, snow, storm; an empty one keeps the word above"
 # @end
@@ -86,6 +87,8 @@ class Nimbus
   # face (0 sheet, 1 ring, 2 flap, 3 big), tear-off on, date format (0 dd.mm.yy, 1 mm/dd/yy,
   # 2 yy-mm-dd), flap card colors (the time color at 18 % and 28 %)
   var face, canim, dfmt, fbg, ffc
+  # temperature unit: 0 the clock's useCelsius, 1 °C, 2 °F
+  var tunit
   # fonts as runs (see runs()) by character: small font and chunky; output row -> glyph row of
   # the double-size time, the big face's time and the flap cards; weekday and month names,
   # weather conditions and their x on the bottom row
@@ -340,6 +343,7 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
     # the weather's words on the big face, by icon (clear twice: day and night), in the chosen
     # language, each replaced by the user's own word when there is one; x where each word starts
     # so that it ends at x 50, below 9 when it is too wide and bounces between x 9 and 50
+    self.tunit = ["Clock setting", "°C", "°F"].find(store.get("tunit"))
     var wl = ["English", "Español", "Français", "Português", "Deutsch"].find(store.get("wlang"))
     var ws = [["CLEAR", "PARTLY", "CLOUDY", "FOG", "RAIN", "SNOW", "STORM"],
               ["DESPEJADO", "POCO NUBOSO", "CUBIERTO", "NIEBLA", "LLUVIA", "NIEVE", "TORMENTA"],
@@ -423,6 +427,9 @@ src = src + ["r.r.r/.YYY/rYYYr/.YYY/r.r.r",             # 9 sun
       end
     end
     var uc = settings.get("useCelsius")
+    # @if tc002
+    if self.tunit uc = self.tunit == 1 end
+    # @end
     if uc != self.uc
       self.uc = uc
       self.dirty = true

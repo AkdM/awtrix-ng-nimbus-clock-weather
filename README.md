@@ -9,6 +9,8 @@ A clock app for [AWTRIX NG](https://github.com/Blueforcer/awtrix-ng) that draws 
 | ![Calendar panel](docs/date.png) | ![Temperature panel](docs/temperature.png) |
 | **Weather** | **Night mode** |
 | ![Weather icon panel](docs/icon.png) | ![Night mode](docs/night.png) |
+| **Night mode, no week bar** | **Big time at night** |
+| ![Night mode without the week bar](docs/night-nobar.png) | ![Big time at night](docs/night-big.png) |
 
 ### TC002
 
@@ -21,6 +23,8 @@ A clock app for [AWTRIX NG](https://github.com/Blueforcer/awtrix-ng) that draws 
 | ![Temperature panel](docs/tc002-temperature.png) | ![Weather icon panel](docs/tc002-icon.png) |
 | **Weather on the big face** | **Night mode** |
 | ![Weather on the big face](docs/tc002-big-weather.png) | ![Night mode](docs/tc002-night.png) |
+| **Night mode, no week bar** | |
+| ![Night mode without the week bar](docs/tc002-night-nobar.png) | |
 
 <sub>Real frames captured from the AWTRIX NG simulators, with the time set to 13:37 for the screenshots.</sub>
 
@@ -84,6 +88,7 @@ The TC002 has memory to spare: none of this applies there.
 | Carousel | Transition | wipe | `wipe`, `fade`, `morph`, `down`, `up`, `left`, `right` or `none` |
 | Weather | Latitude / Longitude | 48.8566 / 2.3522 | |
 | Weather | Refresh | 15 min | A failed fetch is retried every minute |
+| Weather | Temperature unit | Clock setting | TC002 only: °C or °F, since the TC002's web UI has no switch for the clock's own setting |
 | Weather | Condition words | English | TC002 only, big face: English, Español, Français, Português or Deutsch |
 | Weather | Your own words | empty | TC002 only: your words for clear, partly cloudy, cloudy, fog, rain, snow and storm, in that order, separated by commas; an empty one keeps the language's word |
 | Room | Room temperature MQTT topic / Humidity MQTT topic | empty | On the broker set in AWTRIX's MQTT settings; empty uses the clock's sensor |
@@ -158,6 +163,9 @@ The TC001 simulator is on http://localhost:8080 and the TC002 one on http://loca
 Made for the **Ulanzi TC001 (32×8)**, tested on a real one, and for the **Ulanzi TC002 (52×16)**, tested in its simulator. Other 32×8 panels should work with the TC001 file; feedback welcome!
 
 ## Changelog
+
+### 2.2 — 2026-11-01
+- TC002: **Temperature unit** setting (clock setting, °C or °F). The TC002's web UI has no switch for the clock's own °C/°F setting, so Fahrenheit couldn't be chosen.
 
 ### 2.1 — 2026-10-24
 - TC001: **Big time at night**, the time in bold 6×8 digits across the whole display at night (no week bar, no AM/PM).

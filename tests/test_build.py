@@ -18,7 +18,7 @@ NBRI = REST.index("nbri") + 1     # and its auto brightness at night after the n
 KEYS = {"tc001": ["t24", "tlz", "tampm", "tsep", "tcol", "tright", "chc", "ctc", "cbc"] + REST[:NBAR] + ["nbig"]
         + REST[NBAR:NBRI] + ["nabri"] + REST[NBRI:],
         "tc002": ["t24", "tlz", "tsep", "tcol", "face", "chc", "ctc", "cbc", "canim", "dfmt"] + REST[:WEATHER]
-        + ["wlang", "wtext"] + REST[WEATHER:]}
+        + ["tunit", "wlang", "wtext"] + REST[WEATHER:]}
 
 
 def build(*args):
@@ -162,8 +162,8 @@ class Install(unittest.TestCase):
             defaults = sim.config_defaults()
             self.assertEqual(list(defaults), KEYS[clock])
             if clock == "tc002":
-                self.assertEqual((defaults["face"], defaults["canim"], defaults["dfmt"], defaults["wlang"], defaults["wtext"]),
-                                 ("sheet", True, "dd.mm.yy", "English", ""))
+                self.assertEqual((defaults["face"], defaults["canim"], defaults["dfmt"], defaults["tunit"], defaults["wlang"],
+                                  defaults["wtext"]), ("sheet", True, "dd.mm.yy", "Clock setting", "English", ""))
             self.assertEqual(defaults["tsep"], "pulse")
             self.assertEqual(defaults["tran"], "wipe")
             self.assertEqual(defaults["panels"], "date,temp,weather")

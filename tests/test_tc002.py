@@ -304,6 +304,25 @@ class Panels(unittest.TestCase):
         self.sim.config(**dict(BASE, face="big", panels="weather"))
         self.shows(range(W), range(10, 16), glyphs("?", 48, 11, FONT, grey))
 
+    def test_temperature_unit(self):
+        # the TC002's web UI has no switch for useCelsius (it lives in the Temperature app's settings,
+        # and the TC002 has no temperature sensor): Nimbus has its own, the clock's setting by default
+        sim = self.sim
+        sim.install(script("tc002", (("\nself.val[1] = num(t[1])\n", "\nself.val[1] = 20\n"),)))
+
+        def shows(value):
+            # chunky value, 1 px, the dot: 14 px from x 1, rows 4-10, in the temperature's color
+            want = set({**glyphs(value, 1, 4, CHUNKY, 0), **dot(13, 4, 0)})
+            wait_for(sim, lambda f: set(region(f, W, range(16), range(16))) == want)
+        try:
+            for celsius, unit, value in ((True, "Clock setting", "20"), (True, "°F", "68"),
+                                         (False, "Clock setting", "68"), (False, "°C", "20")):
+                sim.settings(useCelsius=celsius)
+                sim.config(**dict(BASE, panels="temp", tunit=unit))
+                shows(value)
+        finally:
+            sim.settings(useCelsius=True)
+
 
 TRANSITIONS = ["wipe", "fade", "morph", "down", "up", "left", "right", "none"]
 

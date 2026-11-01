@@ -9,13 +9,16 @@ from simlib import ROOT, Sim, script
 # the file name in docs/ and the settings of each shot
 SHOTS = {
     "tc001": [("date", {"panels": "date"}), ("temperature", {"panels": "temp"}), ("icon", {"panels": "weather"}),
-              ("night", {"panels": "date", "night": True})],
+              ("night", {"panels": "date", "night": True}),
+              ("night-nobar", {"panels": "date", "night": True, "nbar": False}),
+              ("night-big", {"panels": "date", "night": True, "nbig": True})],
     "tc002": [("tc002-sheet", {"face": "sheet", "panels": "date"}), ("tc002-ring", {"face": "ring", "panels": "date"}),
               ("tc002-flap", {"face": "flap", "panels": "date"}), ("tc002-big", {"face": "big", "panels": "date"}),
               ("tc002-temperature", {"face": "sheet", "panels": "temp"}),
               ("tc002-icon", {"face": "sheet", "panels": "weather"}),
               ("tc002-big-weather", {"face": "big", "panels": "weather"}),
-              ("tc002-night", {"face": "sheet", "panels": "date", "night": True})],
+              ("tc002-night", {"face": "sheet", "panels": "date", "night": True}),
+              ("tc002-night-nobar", {"face": "sheet", "panels": "date", "night": True, "nbar": False})],
 }
 STILL = {"tc001": {}, "tc002": {"canim": False}}            # no tear-off in the shots
 RESTORE = {"tc001": {}, "tc002": {"face": "sheet", "canim": True}}
@@ -52,7 +55,8 @@ def main():
             sim.req("PUT", "/apps/script/Nimbus", raw=demo.encode())
             sim.only("Nimbus")
             for name, cfg in SHOTS[clock]:
-                sim.config(**{**STILL[clock], "tran": "none", "tsep": "steady", "night": False, "ntopic": "", **cfg})
+                sim.config(**{**STILL[clock], "tran": "none", "tsep": "steady", "night": False, "ntopic": "", "nbar": True,
+                              **({"nbig": False} if clock == "tc001" else {}), **cfg})
                 time.sleep(1 if cfg["panels"] == "date" else 4)
                 w, h, px = sim.screen()
                 png(ROOT / "docs" / (name + ".png"), w, h, px)

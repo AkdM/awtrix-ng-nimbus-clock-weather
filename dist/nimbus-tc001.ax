@@ -1,7 +1,7 @@
 # @name Nimbus
 # @desc Clock with calendar, weather and room values, like the official Time app
 # @author AkdM
-# @version 2.1
+# @version 2.2
 # @display 32x8
 # @config t24 bool "24-hour clock" default=true group="Time"
 # @config tlz bool "Leading zero" default=true group="Time"
